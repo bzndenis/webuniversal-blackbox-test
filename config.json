@@ -1,5 +1,5 @@
 {
-  "test_mode": "Stress Test",
+  "test_mode": "Load Generator",
   "base_url": "https://example.com",
   "max_depth": 2,
   "max_pages": 10,
@@ -9,8 +9,8 @@
   "headless": true,
   "timeout": 10,
   "deep_component_test": true,
-  "test_forms": true,
-  "auth_enabled": true,
+  "test_forms": false,
+  "auth_enabled": false,
   "login_url": "https://jdih.kemenlh.go.id/admin/login",
   "auth_username": "admin@kemenlh.go.id",
   "auth_password": "password",
@@ -21,5 +21,18 @@
   "stress_think_time": 1.0,
   "stress_timeout": 30,
   "stress_actions": "",
-  "last_saved": "2025-10-23T00:36:37.418170"
+  "load_virtual_users": 10,
+  "load_duration": 10,
+  "load_ramp_up": 10,
+  "load_ramp_down": 10,
+  "load_think_time": 1.0,
+  "load_timeout": 30,
+  "load_scenario_name": "Load Test Scenario",
+  "load_test_plan": "Load Test Plan",
+  "load_max_browsers": 5,
+  "load_memory_limit": 128,
+  "load_enable_monitoring": true,
+  "load_max_cpu": 80,
+  "load_max_memory": 85,
+  "last_saved": "2025-10-23T01:29:04.510809"
 }

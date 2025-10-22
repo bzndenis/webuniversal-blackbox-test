@@ -128,10 +128,13 @@ class StressTester:
                 if self.config.think_time_seconds > 0:
                     await asyncio.sleep(self.config.think_time_seconds)
                 
+                # Optimasi: Beri jeda untuk mengurangi beban CPU
+                await asyncio.sleep(0.01)  # 10ms delay untuk mengurangi CPU usage
+                
                 request_id += 1
     
     async def _execute_request(self, user_id: int, request_id: int) -> StressTestResult:
-        """Eksekusi satu request."""
+        """Eksekusi satu request dengan optimasi resource."""
         start_time = time.time()
         success = False
         error_message = None
@@ -140,31 +143,58 @@ class StressTester:
         
         try:
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=self.config.headless)
-                context = await browser.new_context()
+                # Optimasi browser launch dengan resource limits
+                browser = await p.chromium.launch(
+                    headless=self.config.headless,
+                    args=[
+                        '--no-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-gpu',
+                        '--disable-extensions',
+                        '--disable-plugins',
+                        '--disable-images',  # Disable images untuk menghemat RAM
+                        '--disable-javascript',  # Disable JS jika tidak diperlukan
+                        '--memory-pressure-off',
+                        '--max_old_space_size=128'  # Limit memory usage
+                    ]
+                )
+                
+                # Optimasi context dengan resource limits
+                context = await browser.new_context(
+                    viewport={'width': 800, 'height': 600},  # Smaller viewport
+                    device_scale_factor=1,
+                    has_touch=False,
+                    is_mobile=False,
+                    java_script_enabled=False,  # Disable JS untuk menghemat CPU
+                    bypass_csp=True
+                )
+                
                 page = await context.new_page()
                 
-                # Set timeout
-                page.set_default_timeout(self.config.timeout_seconds * 1000)
+                # Set timeout yang lebih pendek untuk efisiensi
+                page.set_default_timeout(min(self.config.timeout_seconds * 1000, 10000))
                 
-                # Navigate ke URL
+                # Navigate ke URL dengan wait strategy yang lebih efisien
                 response = await page.goto(
                     self.config.url,
-                    wait_until="load",
-                    timeout=self.config.timeout_seconds * 1000
+                    wait_until="domcontentloaded",  # Lebih cepat dari "load"
+                    timeout=min(self.config.timeout_seconds * 1000, 10000)
                 )
                 
                 if response:
                     status_code = response.status
                 
-                # Jalankan aksi tambahan jika ada
+                # Jalankan aksi tambahan jika ada (dengan optimasi)
                 if self.config.actions:
-                    await self._execute_actions(page)
+                    await self._execute_actions_optimized(page)
                 
                 # Ambil response time
                 response_time = time.time() - start_time
                 success = True
                 
+                # Cleanup yang lebih agresif
+                await page.close()
+                await context.close()
                 await browser.close()
                 
         except Exception as e:
@@ -186,8 +216,8 @@ class StressTester:
             status_code=status_code
         )
     
-    async def _execute_actions(self, page: Page):
-        """Jalankan aksi tambahan pada halaman."""
+    async def _execute_actions_optimized(self, page: Page):
+        """Jalankan aksi tambahan dengan optimasi resource."""
         for action in self.config.actions:
             try:
                 action_type = action.get("type")
@@ -195,28 +225,32 @@ class StressTester:
                 if action_type == "click":
                     selector = action.get("selector")
                     if selector:
-                        await page.click(selector)
+                        await page.click(selector, timeout=2000)  # Shorter timeout
                 
                 elif action_type == "fill":
                     selector = action.get("selector")
                     value = action.get("value", "")
                     if selector:
-                        await page.fill(selector, value)
+                        await page.fill(selector, value, timeout=2000)  # Shorter timeout
                 
                 elif action_type == "wait":
-                    seconds = action.get("seconds", 1)
+                    seconds = min(action.get("seconds", 1), 2)  # Max 2 seconds
                     await asyncio.sleep(seconds)
                 
                 elif action_type == "screenshot":
-                    # Screenshot opsional untuk debugging
+                    # Skip screenshot untuk menghemat resource
                     pass
                 
-                # Think time antara aksi
+                # Think time yang lebih pendek
                 if self.config.think_time_seconds > 0:
-                    await asyncio.sleep(self.config.think_time_seconds)
+                    await asyncio.sleep(min(self.config.think_time_seconds, 0.5))
                     
             except Exception as e:
                 logger.warning(f"Gagal menjalankan aksi {action}: {e}")
+    
+    async def _execute_actions(self, page: Page):
+        """Jalankan aksi tambahan pada halaman (legacy method)."""
+        await self._execute_actions_optimized(page)
     
     def _calculate_summary(self) -> StressTestSummary:
         """Hitung ringkasan hasil stress test."""

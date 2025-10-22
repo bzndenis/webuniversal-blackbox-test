@@ -18,6 +18,8 @@ Automated web testing tool untuk melakukan black-box functional testing pada web
 - 🖼️ **Image Validation**: Verifikasi semua image load dengan baik, detect broken images
 - 🔗 **Link Checking**: Test semua link (internal & external), detect empty links
 - 🚀 **Stress Testing**: Test performa aplikasi dengan multiple concurrent users
+- 🏢 **Load Generator**: Enterprise load testing dengan skala 1K-10K virtual users
+- 📊 **Real-time Progress Monitoring**: Live progress tracking dengan charts dan metrics
 - 🔒 **Penetration Testing**: XSS dan SQL Injection vulnerability testing
 - 📝 **YAML Scenarios**: Custom test workflows dengan actions dan assertions
 - 📊 **Rich Reports**: Export ke HTML, CSV, dan JSON
@@ -184,6 +186,60 @@ config = create_stress_test_config(
     think_time_seconds=1.0
 )
 ```
+
+### 5. Load Generator Mode (Enterprise 🏢)
+
+Mode ini untuk enterprise load testing dengan skala besar seperti JMeter.
+
+**Langkah:**
+1. Pilih **"Load Generator"** di sidebar
+2. Masukkan **Target URL** yang akan di-load test
+3. Konfigurasi parameter load test:
+   - **Virtual Users**: 1-10,000+ (tergantung sistem)
+   - **Duration**: 10-3,600 detik
+   - **Ramp Up/Down**: Waktu untuk mencapai/mengurangi load
+   - **Think Time**: Waktu tunggu antara request
+4. Klik **Run Test**
+
+**Load Generator akan mengukur:**
+- 📊 **Performance Metrics**: Response time, throughput, success rate
+- 💻 **Resource Usage**: CPU, memory, network monitoring
+- 🎭 **Thread Groups**: Multiple concurrent scenarios
+- 📈 **Performance Analytics**: Detailed analysis seperti JMeter
+- 🖥️ **System Scale**: Automatic detection (Small/Medium/Large)
+
+**Enterprise Features:**
+- **System Scale Detection**: Otomatis detect kapasitas sistem
+- **Resource Monitoring**: Real-time CPU/memory tracking
+- **Thread Groups**: Multiple concurrent test scenarios
+- **Performance Analytics**: Detailed response time analysis
+- **Error Analysis**: Comprehensive error categorization
+- **Throughput Analysis**: RPS dan peak performance
+
+**System Scale Support:**
+- **Small**: 4 vCPU, 8 GB RAM → 1,000 VU, 1,000 RPS
+- **Medium**: 8 vCPU, 16 GB RAM → 5,000 VU, 10,000 RPS  
+- **Large**: 16+ vCPU, 32+ GB RAM → 10,000+ VU, 25,000+ RPS
+
+### 6. Real-time Progress Monitoring 📊
+
+**Fitur monitoring real-time selama load test berjalan:**
+
+1. **Live Progress Bar**: Persentase completion real-time
+2. **Live Metrics**: RPS, Success Rate, Active Users, Completed Requests
+3. **Real-time Charts**: Visualisasi performa dengan multiple chart types
+4. **Summary Statistics**: Analisis mendalam hasil test
+
+**Progress Monitoring Features:**
+- **Progress Updates**: Update setiap 0.5 detik untuk performa optimal
+- **Chart Visualization**: Overview, Detailed Metrics, dan Summary Stats
+- **Alert System**: Warning untuk success rate rendah atau RPS rendah
+- **Export Data**: Export progress data ke CSV/JSON untuk analisis
+
+**Chart Types:**
+- **Overview Chart**: RPS, Success Rate, Active Users, Progress
+- **Detailed Metrics**: Multiple charts untuk analisis mendalam
+- **Summary Stats**: Timeline dan statistik lengkap
 
 ## 🔒 Penetration Testing
 

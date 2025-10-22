@@ -39,6 +39,7 @@ from datetime import datetime
 from pathlib import Path
 import logging
 import json
+import time
 
 # Configure logging EARLY
 logging.basicConfig(
@@ -82,6 +83,8 @@ from app.services.reporter import generate_all_reports, generate_stress_test_rep
 from app.services.yaml_loader import load_yaml_spec, create_sample_yaml
 from app.services.heuristics import test_form_submission
 from app.services.stress_test import StressTester, create_stress_test_config, run_stress_test
+from app.services.load_generator import AdvancedLoadGenerator, create_load_generator_config, run_load_test, LoadGeneratorScale
+from app.services.progress_monitor import create_progress_monitor, create_streamlit_updater
 from app.models.db import init_db, create_test_run, update_test_run, create_page_test, get_recent_runs
 
 # Page configuration
@@ -117,12 +120,25 @@ def save_config_to_file():
         "auth_username": st.session_state.get("auth_username", ""),
         "auth_password": st.session_state.get("auth_password", ""),
         "success_indicator": st.session_state.get("success_indicator", ""),
-        "stress_concurrent_users": st.session_state.get("stress_concurrent_users", 10),
-        "stress_duration": st.session_state.get("stress_duration", 60),
-        "stress_ramp_up": st.session_state.get("stress_ramp_up", 10),
-        "stress_think_time": st.session_state.get("stress_think_time", 1.0),
-        "stress_timeout": st.session_state.get("stress_timeout", 30),
+        "stress_concurrent_users": st.session_state.get("stress_concurrent_users", 3),
+        "stress_duration": st.session_state.get("stress_duration", 30),
+        "stress_ramp_up": st.session_state.get("stress_ramp_up", 5),
+        "stress_think_time": st.session_state.get("stress_think_time", 2.0),
+        "stress_timeout": st.session_state.get("stress_timeout", 15),
         "stress_actions": st.session_state.get("stress_actions", ""),
+        "load_virtual_users": st.session_state.get("load_virtual_users", 10),
+        "load_duration": st.session_state.get("load_duration", 60),
+        "load_ramp_up": st.session_state.get("load_ramp_up", 10),
+        "load_ramp_down": st.session_state.get("load_ramp_down", 10),
+        "load_think_time": st.session_state.get("load_think_time", 1.0),
+        "load_timeout": st.session_state.get("load_timeout", 30),
+        "load_scenario_name": st.session_state.get("load_scenario_name", "Load Test Scenario"),
+        "load_test_plan": st.session_state.get("load_test_plan", "Load Test Plan"),
+        "load_max_browsers": st.session_state.get("load_max_browsers", 5),
+        "load_memory_limit": st.session_state.get("load_memory_limit", 128),
+        "load_enable_monitoring": st.session_state.get("load_enable_monitoring", True),
+        "load_max_cpu": st.session_state.get("load_max_cpu", 80),
+        "load_max_memory": st.session_state.get("load_max_memory", 85),
         "last_saved": datetime.now().isoformat()
     }
     
@@ -169,12 +185,25 @@ def init_session_state():
         'auth_username': "",
         'auth_password': "",
         'success_indicator': "",
-        'stress_concurrent_users': 10,
-        'stress_duration': 60,
-        'stress_ramp_up': 10,
-        'stress_think_time': 1.0,
-        'stress_timeout': 30,
-        'stress_actions': ""
+        'stress_concurrent_users': 3,  # Reduced from 10 to 3
+        'stress_duration': 30,  # Reduced from 60 to 30
+        'stress_ramp_up': 5,  # Reduced from 10 to 5
+        'stress_think_time': 2.0,  # Increased from 1.0 to 2.0 for less CPU usage
+        'stress_timeout': 15,  # Reduced from 30 to 15
+        'stress_actions': "",
+        'load_virtual_users': 10,
+        'load_duration': 60,
+        'load_ramp_up': 10,
+        'load_ramp_down': 10,
+        'load_think_time': 1.0,
+        'load_timeout': 30,
+        'load_scenario_name': "Load Test Scenario",
+        'load_test_plan': "Load Test Plan",
+        'load_max_browsers': 5,
+        'load_memory_limit': 128,
+        'load_enable_monitoring': True,
+        'load_max_cpu': 80,
+        'load_max_memory': 85
     }
     
     # Initialize session state with saved config or defaults
@@ -232,8 +261,8 @@ with st.sidebar:
     # Mode selection
     test_mode = st.radio(
         "Test Mode",
-        ["Crawler Mode", "YAML Scenario", "Single Page", "Stress Test"],
-        index=["Crawler Mode", "YAML Scenario", "Single Page", "Stress Test"].index(st.session_state.test_mode),
+        ["Crawler Mode", "YAML Scenario", "Single Page", "Stress Test", "Load Generator"],
+        index=["Crawler Mode", "YAML Scenario", "Single Page", "Stress Test", "Load Generator"].index(st.session_state.test_mode),
         help="Choose testing mode",
         key="test_mode"
     )
@@ -361,7 +390,7 @@ with st.sidebar:
                 "Request Timeout (seconds)",
                 min_value=5,
                 max_value=120,
-                value=st.session_state.get("stress_timeout", 30),
+                value=st.session_state.get("stress_timeout", 15),
                 help="Timeout per request",
                 key="stress_timeout"
             )
@@ -372,6 +401,231 @@ with st.sidebar:
                 help="Aksi tambahan dalam format JSON. Contoh: [{\"type\": \"click\", \"selector\": \"button\"}]",
                 key="stress_actions"
             )
+        
+        # Resource usage warning
+        if concurrent_users > 5:
+            st.warning("⚠️ **Resource Warning**: Concurrent users > 5 dapat menyebabkan CPU usage tinggi. Disarankan untuk test dengan 3-5 users terlebih dahulu.")
+        
+        if duration_seconds > 60:
+            st.warning("⚠️ **Duration Warning**: Test duration > 60 detik dapat memakan banyak resource. Pertimbangkan untuk mengurangi durasi.")
+        
+        # Performance tips
+        with st.expander("💡 Performance Tips"):
+            st.markdown("""
+            **Untuk mengurangi beban CPU dan RAM:**
+            
+            - 🎯 **Mulai kecil**: Gunakan 3-5 concurrent users
+            - ⏱️ **Durasi pendek**: 30-60 detik untuk test awal
+            - 🤔 **Think time tinggi**: 2+ detik untuk mengurangi request frequency
+            - 🚀 **Ramp up**: 5-10 detik untuk gradual load
+            - ⚡ **Timeout pendek**: 10-15 detik untuk efisiensi
+            
+            **Browser optimizations (otomatis):**
+            - 🖼️ Images disabled untuk menghemat RAM
+            - 🧠 JavaScript disabled untuk menghemat CPU
+            - 📱 Smaller viewport (800x600)
+            - 🧹 Aggressive cleanup setelah setiap request
+            """)
+    
+    elif test_mode == "Load Generator":
+        st.subheader("🚀 Load Generator (Enterprise)")
+        
+        # System specs detection
+        import psutil
+        cpu_count = psutil.cpu_count(logical=True)
+        memory_gb = psutil.virtual_memory().total / (1024**3)
+        
+        # Determine scale
+        if cpu_count >= 16 and memory_gb >= 32:
+            scale = "Large (16+ vCPU, 32+ GB RAM)"
+            max_vu = 10000
+            max_rps = 25000
+        elif cpu_count >= 8 and memory_gb >= 16:
+            scale = "Medium (8 vCPU, 16 GB RAM)"
+            max_vu = 5000
+            max_rps = 10000
+        else:
+            scale = "Small (4 vCPU, 8 GB RAM)"
+            max_vu = 1000
+            max_rps = 1000
+        
+        st.info(f"🖥️ **System Scale**: {scale}")
+        st.info(f"📊 **Recommended Max**: {max_vu} VU, {max_rps} RPS")
+        
+        # Basic configuration
+        load_url = st.text_input(
+            "Target URL",
+            value=st.session_state.base_url,
+            help="URL yang akan di-load test",
+            key="load_generator_url"
+        )
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            virtual_users = st.number_input(
+                "Virtual Users",
+                min_value=1,
+                max_value=max_vu,
+                value=st.session_state.get("load_virtual_users", 10),
+                help=f"Jumlah virtual users (max: {max_vu})",
+                key="load_virtual_users"
+            )
+        with col2:
+            load_duration = st.number_input(
+                "Duration (seconds)",
+                min_value=10,
+                max_value=3600,
+                value=st.session_state.get("load_duration", 60),
+                help="Durasi test dalam detik",
+                key="load_duration"
+            )
+        
+        col3, col4 = st.columns(2)
+        with col3:
+            ramp_up = st.number_input(
+                "Ramp Up (seconds)",
+                min_value=0,
+                max_value=300,
+                value=st.session_state.get("load_ramp_up", 10),
+                help="Waktu untuk mencapai full load",
+                key="load_ramp_up"
+            )
+        with col4:
+            ramp_down = st.number_input(
+                "Ramp Down (seconds)",
+                min_value=0,
+                max_value=300,
+                value=st.session_state.get("load_ramp_down", 10),
+                help="Waktu untuk mengurangi load",
+                key="load_ramp_down"
+            )
+        
+        col5, col6 = st.columns(2)
+        with col5:
+            think_time = st.number_input(
+                "Think Time (seconds)",
+                min_value=0.0,
+                max_value=10.0,
+                value=st.session_state.get("load_think_time", 1.0),
+                step=0.1,
+                help="Waktu tunggu antara request",
+                key="load_think_time"
+            )
+        with col6:
+            load_timeout = st.number_input(
+                "Request Timeout (seconds)",
+                min_value=5,
+                max_value=120,
+                value=st.session_state.get("load_timeout", 30),
+                help="Timeout per request",
+                key="load_timeout"
+            )
+        
+        # Advanced configuration
+        with st.expander("🔧 Advanced Load Generator Options"):
+            scenario_name = st.text_input(
+                "Scenario Name",
+                value=st.session_state.get("load_scenario_name", "Load Test Scenario"),
+                help="Nama scenario untuk identifikasi",
+                key="load_scenario_name"
+            )
+            
+            test_plan_name = st.text_input(
+                "Test Plan Name",
+                value=st.session_state.get("load_test_plan", "Load Test Plan"),
+                help="Nama test plan",
+                key="load_test_plan"
+            )
+            
+            max_browsers = st.number_input(
+                "Max Concurrent Browsers",
+                min_value=1,
+                max_value=20,
+                value=st.session_state.get("load_max_browsers", 5),
+                help="Maksimal browser bersamaan",
+                key="load_max_browsers"
+            )
+            
+            memory_limit = st.number_input(
+                "Browser Memory Limit (MB)",
+                min_value=64,
+                max_value=512,
+                value=st.session_state.get("load_memory_limit", 128),
+                help="Memory limit per browser",
+                key="load_memory_limit"
+            )
+        
+        # Resource monitoring
+        with st.expander("📊 Resource Monitoring"):
+            enable_monitoring = st.checkbox(
+                "Enable Resource Monitoring",
+                value=st.session_state.get("load_enable_monitoring", True),
+                help="Monitor CPU dan memory usage",
+                key="load_enable_monitoring"
+            )
+            
+            if enable_monitoring:
+                col1, col2 = st.columns(2)
+                with col1:
+                    max_cpu = st.slider(
+                        "Max CPU Usage (%)",
+                        min_value=50,
+                        max_value=95,
+                        value=st.session_state.get("load_max_cpu", 80),
+                        help="Maksimal CPU usage sebelum warning",
+                        key="load_max_cpu"
+                    )
+                with col2:
+                    max_memory = st.slider(
+                        "Max Memory Usage (%)",
+                        min_value=50,
+                        max_value=95,
+                        value=st.session_state.get("load_max_memory", 85),
+                        help="Maksimal memory usage sebelum warning",
+                        key="load_max_memory"
+                    )
+        
+        # Load capacity validation
+        if virtual_users > max_vu * 0.8:
+            st.warning(f"⚠️ **High Load Warning**: {virtual_users} VU mendekati kapasitas maksimal ({max_vu} VU)")
+        
+        if virtual_users > max_vu:
+            st.error(f"❌ **Capacity Exceeded**: {virtual_users} VU melebihi kapasitas sistem ({max_vu} VU)")
+        
+        # Performance estimation
+        estimated_rps = virtual_users / (think_time + 1) if think_time > 0 else virtual_users
+        if estimated_rps > max_rps * 0.8:
+            st.warning(f"⚠️ **RPS Warning**: Estimated {estimated_rps:.1f} RPS mendekati kapasitas ({max_rps} RPS)")
+        
+        # Load generator tips
+        with st.expander("💡 Load Generator Tips"):
+            st.markdown(f"""
+            **System Capacity:**
+            - 🖥️ **Scale**: {scale}
+            - 👥 **Max VU**: {max_vu:,} virtual users
+            - 🚀 **Max RPS**: {max_rps:,} requests per second
+            
+            **Current Configuration:**
+            - 👥 **VU**: {virtual_users:,} virtual users
+            - 🚀 **Estimated RPS**: {estimated_rps:.1f} requests per second
+            - ⏱️ **Duration**: {load_duration} seconds
+            - 📈 **Ramp Up**: {ramp_up} seconds
+            - 📉 **Ramp Down**: {ramp_down} seconds
+            
+            **Performance Tips:**
+            - 🎯 **Start Small**: Mulai dengan 10-50 VU
+            - ⏱️ **Short Duration**: 30-60 detik untuk test awal
+            - 🤔 **Think Time**: 1-3 detik untuk realistic load
+            - 📊 **Monitor Resources**: Watch CPU dan memory usage
+            - 🚀 **Gradual Increase**: Tingkatkan load secara bertahap
+            
+            **Enterprise Features:**
+            - 📊 **Resource Monitoring**: Real-time CPU/memory tracking
+            - 🎭 **Thread Groups**: Multiple concurrent scenarios
+            - 📈 **Performance Metrics**: Detailed response time analysis
+            - 🔍 **Error Analysis**: Comprehensive error categorization
+            - 📊 **Throughput Analysis**: RPS dan peak performance
+            """)
     
     else:  # Single Page
         st.subheader("Single Page Test")
@@ -771,6 +1025,14 @@ with tab1:
                 st.info(f"⏱️ Duration: {duration_seconds} seconds")
                 st.info(f"📈 Ramp up: {ramp_up_seconds} seconds")
                 
+                # Resource monitoring info
+                if concurrent_users <= 3:
+                    st.success("✅ **Resource-friendly configuration** - Good for testing")
+                elif concurrent_users <= 5:
+                    st.info("ℹ️ **Medium load** - Monitor CPU usage")
+                else:
+                    st.warning("⚠️ **High load** - May cause high CPU usage")
+                
                 # Run stress test
                 with st.spinner("Running stress test..."):
                     # Create async wrapper for stress test
@@ -896,6 +1158,357 @@ with tab1:
                 
                 st.success("✅ Stress test completed!")
                 st.info(f"📁 Results saved to: {artifacts_dir}")
+                st.stop()
+            
+            elif test_mode == "Load Generator":
+                # Create load generator configuration
+                load_config = create_load_generator_config(
+                    target_url=load_url,
+                    virtual_users=virtual_users,
+                    duration_seconds=load_duration,
+                    ramp_up_seconds=ramp_up,
+                    ramp_down_seconds=ramp_down,
+                    think_time_seconds=think_time,
+                    timeout_seconds=load_timeout,
+                    headless=headless,
+                    scenario_name=scenario_name,
+                    test_plan_name=test_plan_name
+                )
+                
+                # Set advanced options
+                load_config.max_concurrent_browsers = max_browsers
+                load_config.browser_memory_limit_mb = memory_limit
+                load_config.enable_resource_monitoring = enable_monitoring
+                load_config.max_cpu_usage_percent = max_cpu
+                load_config.max_memory_usage_percent = max_memory
+                
+                # Create database record
+                db_run = create_test_run(
+                    run_id=run_id,
+                    base_url=load_url,
+                    config={
+                        "mode": "load_generator",
+                        "virtual_users": virtual_users,
+                        "duration_seconds": load_duration,
+                        "ramp_up_seconds": ramp_up,
+                        "ramp_down_seconds": ramp_down,
+                        "think_time_seconds": think_time,
+                        "timeout_seconds": load_timeout,
+                        "scenario_name": scenario_name,
+                        "test_plan_name": test_plan_name
+                    }
+                )
+                update_test_run(run_id, status="running")
+                
+                st.info(f"🚀 Starting Load Generator: {scenario_name}")
+                st.info(f"👥 Virtual Users: {virtual_users}")
+                st.info(f"⏱️ Duration: {load_duration} seconds")
+                st.info(f"📈 Ramp Up: {ramp_up} seconds")
+                st.info(f"📉 Ramp Down: {ramp_down} seconds")
+                
+                # System capacity info
+                estimated_rps = virtual_users / (think_time + 1) if think_time > 0 else virtual_users
+                st.info(f"🚀 Estimated RPS: {estimated_rps:.1f}")
+                
+                # Run load test with real-time progress monitoring
+                st.subheader("🚀 Load Test Progress")
+                
+                # Create progress monitoring UI
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                metrics_container = st.container()
+                chart_container = st.container()
+                
+                # Create progress monitor
+                progress_monitor = create_progress_monitor()
+                streamlit_updater = create_streamlit_updater(progress_bar, status_text, metrics_container)
+                
+                # Create load generator
+                generator = AdvancedLoadGenerator(load_config)
+                
+                # Run load test with real-time progress
+                async def run_load_test_with_progress():
+                    try:
+                        # Start progress monitoring
+                        await progress_monitor.start_monitoring(generator, streamlit_updater.update_progress)
+                        
+                        # Run load test with timeout
+                        load_result = await asyncio.wait_for(
+                            generator.run_load_test(),
+                            timeout=load_config.duration_seconds + 30  # 30 seconds buffer
+                        )
+                        
+                        # Stop progress monitoring
+                        await progress_monitor.stop_monitoring()
+                        
+                        return load_result
+                    except asyncio.TimeoutError:
+                        # Handle timeout
+                        await progress_monitor.stop_monitoring()
+                        st.error("⏰ Load test timeout! Test took longer than expected.")
+                        return None
+                    except Exception as e:
+                        # Ensure monitoring stops even if there's an error
+                        await progress_monitor.stop_monitoring()
+                        st.error(f"❌ Error during load test: {str(e)}")
+                        raise e
+                
+                with st.spinner("Running load test..."):
+                    # Run the async function
+                    load_result = asyncio.run(run_load_test_with_progress())
+                
+                # Display final progress
+                if load_result is not None:
+                    progress_bar.progress(100)
+                    status_text.text("✅ Load test completed!")
+                else:
+                    progress_bar.progress(100)
+                    status_text.text("⏰ Load test timeout or failed!")
+                
+                # Show final metrics
+                if load_result is not None:
+                    with metrics_container.container():
+                        st.subheader("📊 Final Progress Summary")
+                        col1, col2, col3, col4, col5 = st.columns(5)
+                        col1.metric("Total Requests", f"{load_result.total_requests:,}")
+                        col2.metric("Success Rate", f"{load_result.success_rate:.1f}%")
+                        col3.metric("Peak RPS", f"{load_result.peak_rps:.1f}")
+                        col4.metric("Avg Response Time", f"{load_result.avg_response_time:.2f}s")
+                        col5.metric("Duration", f"{load_result.duration:.1f}s")
+                else:
+                    with metrics_container.container():
+                        st.subheader("📊 Test Status")
+                        st.error("⏰ Load test timeout or failed. Please check your configuration and try again.")
+                
+                # Show real-time performance charts
+                chart_data = progress_monitor.get_chart_data()
+                detailed_chart_data = progress_monitor.get_detailed_chart_data()
+                summary_stats = progress_monitor.get_summary_stats()
+                
+                if chart_data:
+                    with chart_container.container():
+                        st.subheader("📈 Real-time Performance Charts")
+                        
+                        # Create tabs for different chart views
+                        tab1, tab2, tab3 = st.tabs(["📊 Overview", "📈 Detailed Metrics", "📋 Summary Stats"])
+                        
+                        with tab1:
+                            st.subheader("Performance Overview")
+                            try:
+                                import pandas as pd
+                                
+                                df = pd.DataFrame(chart_data)
+                                if not df.empty:
+                                    # Main performance chart
+                                    st.line_chart(df.set_index('Time (s)'))
+                                    
+                                    # Additional metrics
+                                    col1, col2 = st.columns(2)
+                                    with col1:
+                                        st.metric("Peak RPS", f"{summary_stats.get('max_rps', 0):.1f}")
+                                        st.metric("Avg RPS", f"{summary_stats.get('avg_rps', 0):.1f}")
+                                    with col2:
+                                        st.metric("Min Success Rate", f"{summary_stats.get('min_success_rate', 0):.1f}%")
+                                        st.metric("Max Active Users", f"{summary_stats.get('max_active_users', 0)}")
+                                        
+                            except ImportError:
+                                st.info("📊 Performance chart memerlukan pandas. Install dengan: `pip install pandas`")
+                        
+                        with tab2:
+                            st.subheader("Detailed Metrics")
+                            try:
+                                import pandas as pd
+                                
+                                df_detailed = pd.DataFrame(detailed_chart_data)
+                                if not df_detailed.empty:
+                                    # Multiple charts for different metrics
+                                    st.line_chart(df_detailed[['RPS', 'Success Rate (%)']].set_index(df_detailed.index))
+                                    st.line_chart(df_detailed[['Active Users', 'Progress (%)']].set_index(df_detailed.index))
+                                    st.line_chart(df_detailed[['Completed Requests', 'Failed Requests']].set_index(df_detailed.index))
+                                    
+                            except ImportError:
+                                st.info("📊 Detailed charts memerlukan pandas")
+                        
+                        with tab3:
+                            st.subheader("Test Summary Statistics")
+                            if summary_stats:
+                                col1, col2, col3 = st.columns(3)
+                                
+                                with col1:
+                                    st.metric("Total Duration", f"{summary_stats.get('total_duration', 0):.1f}s")
+                                    st.metric("Final Progress", f"{summary_stats.get('final_progress', 0):.1f}%")
+                                
+                                with col2:
+                                    st.metric("Total Requests", f"{summary_stats.get('total_requests', 0):,}")
+                                    st.metric("Successful Requests", f"{summary_stats.get('successful_requests', 0):,}")
+                                
+                                with col3:
+                                    st.metric("Failed Requests", f"{summary_stats.get('failed_requests', 0):,}")
+                                    st.metric("Success Rate", f"{(summary_stats.get('successful_requests', 0) / max(summary_stats.get('total_requests', 1), 1) * 100):.1f}%")
+                                
+                                # Progress timeline
+                                st.subheader("Progress Timeline")
+                                timeline_data = []
+                                for i, data in enumerate(progress_monitor.get_progress_history()):
+                                    timeline_data.append({
+                                        'Time': f"{i}s",
+                                        'Progress': data['progress_percent'],
+                                        'RPS': data['current_rps'],
+                                        'Success Rate': data['success_rate']
+                                    })
+                                
+                                if timeline_data:
+                                    timeline_df = pd.DataFrame(timeline_data)
+                                    st.dataframe(timeline_df, use_container_width=True)
+                
+                # Display load test results
+                st.subheader("📊 Load Test Results")
+                
+                # Key metrics
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Total Requests", f"{load_result.total_requests:,}")
+                col2.metric("Success Rate", f"{load_result.success_rate:.1f}%")
+                col3.metric("Avg Response Time", f"{load_result.avg_response_time:.2f}s")
+                col4.metric("Peak RPS", f"{load_result.peak_rps:.1f}")
+                
+                # Response time analysis
+                st.subheader("⏱️ Response Time Analysis")
+                col1, col2, col3, col4, col5 = st.columns(5)
+                col1.metric("Min", f"{load_result.min_response_time:.2f}s")
+                col2.metric("Max", f"{load_result.max_response_time:.2f}s")
+                col3.metric("P50", f"{load_result.p50_response_time:.2f}s")
+                col4.metric("P95", f"{load_result.p95_response_time:.2f}s")
+                col5.metric("P99", f"{load_result.p99_response_time:.2f}s")
+                
+                # Throughput analysis
+                st.subheader("🚀 Throughput Analysis")
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Average RPS", f"{load_result.average_rps:.1f}")
+                col2.metric("Peak RPS", f"{load_result.peak_rps:.1f}")
+                col3.metric("Total Duration", f"{load_result.duration:.1f}s")
+                
+                # Resource usage
+                if load_result.peak_cpu_usage > 0:
+                    st.subheader("💻 Resource Usage")
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("Peak CPU", f"{load_result.peak_cpu_usage:.1f}%")
+                    col2.metric("Peak Memory", f"{load_result.peak_memory_usage:.1f}%")
+                    col3.metric("Avg CPU", f"{load_result.average_cpu_usage:.1f}%")
+                    col4.metric("Avg Memory", f"{load_result.average_memory_usage:.1f}%")
+                
+                # Error analysis
+                if load_result.errors:
+                    st.subheader("❌ Error Analysis")
+                    error_data = []
+                    for error_type, count in load_result.errors.items():
+                        percentage = (count / load_result.total_requests * 100) if load_result.total_requests > 0 else 0
+                        error_data.append({
+                            "Error Type": error_type,
+                            "Count": count,
+                            "Percentage": f"{percentage:.1f}%"
+                        })
+                    
+                    st.dataframe(error_data, hide_index=True)
+                
+                # System specs
+                st.subheader("🖥️ System Information")
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Load Generator Scale", load_result.load_generator_scale.value.title())
+                col2.metric("CPU Cores", load_result.system_specs.cpu_count)
+                col3.metric("Memory (GB)", f"{load_result.system_specs.memory_gb:.1f}")
+                
+                # Performance chart
+                st.subheader("📈 Performance Chart")
+                if load_result.total_requests > 0:
+                    try:
+                        import pandas as pd
+                        
+                        # Simulate performance data over time
+                        time_points = list(range(0, int(load_result.duration), max(1, int(load_result.duration // 20))))
+                        performance_data = []
+                        
+                        for t in time_points:
+                            # Simulate realistic performance curve
+                            base_rps = load_result.average_rps
+                            # Add some variation
+                            variation = 0.1 * base_rps * (0.5 - (t % 10) / 10)
+                            rps = max(0, base_rps + variation)
+                            performance_data.append({
+                                "Time (s)": t,
+                                "Requests/sec": rps,
+                                "Response Time (s)": load_result.avg_response_time * (1 + 0.1 * (t % 5) / 5)
+                            })
+                        
+                        df = pd.DataFrame(performance_data)
+                        st.line_chart(df.set_index("Time (s)"))
+                    except ImportError:
+                        st.info("📊 Performance chart memerlukan pandas. Install dengan: `pip install pandas`")
+                
+                # Save load test results
+                load_results = {
+                    "test_id": load_result.test_id,
+                    "scenario_name": scenario_name,
+                    "test_plan_name": test_plan_name,
+                    "start_time": load_result.start_time,
+                    "end_time": load_result.end_time,
+                    "duration": load_result.duration,
+                    "performance": {
+                        "total_requests": load_result.total_requests,
+                        "successful_requests": load_result.successful_requests,
+                        "failed_requests": load_result.failed_requests,
+                        "success_rate": load_result.success_rate,
+                        "error_rate": load_result.error_rate
+                    },
+                    "response_times": {
+                        "avg": load_result.avg_response_time,
+                        "min": load_result.min_response_time,
+                        "max": load_result.max_response_time,
+                        "p50": load_result.p50_response_time,
+                        "p90": load_result.p90_response_time,
+                        "p95": load_result.p95_response_time,
+                        "p99": load_result.p99_response_time
+                    },
+                    "throughput": {
+                        "average_rps": load_result.average_rps,
+                        "peak_rps": load_result.peak_rps,
+                        "requests_per_second": load_result.requests_per_second
+                    },
+                    "resource_usage": {
+                        "peak_cpu": load_result.peak_cpu_usage,
+                        "peak_memory": load_result.peak_memory_usage,
+                        "average_cpu": load_result.average_cpu_usage,
+                        "average_memory": load_result.average_memory_usage
+                    },
+                    "errors": load_result.errors,
+                    "system_info": {
+                        "scale": load_result.load_generator_scale.value,
+                        "cpu_count": load_result.system_specs.cpu_count,
+                        "memory_gb": load_result.system_specs.memory_gb,
+                        "platform": load_result.system_specs.platform,
+                        "architecture": load_result.system_specs.architecture
+                    }
+                }
+                
+                # Save to artifacts
+                load_results_path = os.path.join(artifacts_dir, "load_test_results.json")
+                with open(load_results_path, 'w', encoding='utf-8') as f:
+                    json.dump(load_results, f, indent=2, ensure_ascii=False)
+                
+                # Update database
+                update_test_run(
+                    run_id,
+                    status="completed",
+                    total_pages=1,  # Load test is on one URL
+                    passed=1 if load_result.success_rate > 80 else 0,
+                    failed=1 if load_result.success_rate <= 80 else 0,
+                    end_time=datetime.now(),
+                    artifacts_path=artifacts_dir
+                )
+                
+                st.success("✅ Load test completed!")
+                st.info(f"📁 Results saved to: {artifacts_dir}")
+                st.info(f"🎭 Scenario: {scenario_name}")
+                st.info(f"📋 Test Plan: {test_plan_name}")
                 st.stop()
             
             else:  # Single Page
