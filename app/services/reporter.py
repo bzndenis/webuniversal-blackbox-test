@@ -464,3 +464,357 @@ def generate_all_reports(
         "json": json_path
     }
 
+def generate_stress_test_html_report(stress_results: Dict[str, Any], output_path: str, run_id: str):
+    """
+    Generate HTML report for stress test results.
+    
+    Args:
+        stress_results: Stress test results dictionary
+        output_path: Path to save HTML report
+        run_id: Unique run identifier
+    """
+    summary = stress_results.get("summary", {})
+    config = stress_results.get("config", {})
+    
+    # Calculate additional metrics
+    total_requests = summary.get("total_requests", 0)
+    successful_requests = summary.get("successful_requests", 0)
+    failed_requests = summary.get("failed_requests", 0)
+    success_rate = summary.get("success_rate", 0)
+    
+    # Create HTML content
+    html_content = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stress Test Report - {run_id}</title>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            color: #333;
+        }}
+        .container {{ 
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }}
+        .header {{
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+        }}
+        h1 {{ 
+            font-size: 32px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }}
+        .meta {{
+            opacity: 0.9;
+            font-size: 14px;
+            margin-top: 10px;
+        }}
+        .summary {{ 
+            padding: 30px;
+            background: #f8f9fa;
+        }}
+        .metrics-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }}
+        .metric-card {{
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            text-align: center;
+        }}
+        .metric-value {{
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+        }}
+        .metric-label {{
+            font-size: 14px;
+            color: #666;
+            margin-top: 5px;
+        }}
+        .section {{
+            padding: 30px;
+            border-bottom: 1px solid #eee;
+        }}
+        .section:last-child {{
+            border-bottom: none;
+        }}
+        .section h2 {{
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 24px;
+        }}
+        .config-table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }}
+        .config-table th, .config-table td {{
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }}
+        .config-table th {{
+            background: #f8f9fa;
+            font-weight: 600;
+        }}
+        .error-analysis {{
+            background: #fff5f5;
+            border: 1px solid #fed7d7;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }}
+        .error-item {{
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #fed7d7;
+        }}
+        .error-item:last-child {{
+            border-bottom: none;
+        }}
+        .success-rate {{
+            font-size: 48px;
+            font-weight: bold;
+            text-align: center;
+            color: {'#10b981' if success_rate >= 80 else '#ef4444'};
+            margin: 20px 0;
+        }}
+        .footer {{
+            background: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            color: #666;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 Stress Test Report</h1>
+            <div class="meta">
+                <strong>Run ID:</strong> {run_id} | 
+                <strong>Generated:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} |
+                <strong>URL:</strong> {stress_results.get('url', 'N/A')}
+            </div>
+        </div>
+        
+        <div class="summary">
+            <h2>📊 Test Summary</h2>
+            <div class="success-rate">{success_rate:.1f}%</div>
+            <div style="text-align: center; color: #666; margin-bottom: 30px;">Success Rate</div>
+            
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-value">{total_requests:,}</div>
+                    <div class="metric-label">Total Requests</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">{successful_requests:,}</div>
+                    <div class="metric-label">Successful</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">{failed_requests:,}</div>
+                    <div class="metric-label">Failed</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">{summary.get('requests_per_second', 0):.1f}</div>
+                    <div class="metric-label">Requests/sec</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>⏱️ Response Time Analysis</h2>
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-value">{summary.get('avg_response_time', 0):.2f}s</div>
+                    <div class="metric-label">Average</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">{summary.get('min_response_time', 0):.2f}s</div>
+                    <div class="metric-label">Minimum</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">{summary.get('max_response_time', 0):.2f}s</div>
+                    <div class="metric-label">Maximum</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">{summary.get('p95_response_time', 0):.2f}s</div>
+                    <div class="metric-label">95th Percentile</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">{summary.get('p99_response_time', 0):.2f}s</div>
+                    <div class="metric-label">99th Percentile</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>⚙️ Test Configuration</h2>
+            <table class="config-table">
+                <tr>
+                    <th>Parameter</th>
+                    <th>Value</th>
+                </tr>
+                <tr>
+                    <td>Concurrent Users</td>
+                    <td>{config.get('concurrent_users', 'N/A')}</td>
+                </tr>
+                <tr>
+                    <td>Duration (seconds)</td>
+                    <td>{config.get('duration_seconds', 'N/A')}</td>
+                </tr>
+                <tr>
+                    <td>Ramp Up (seconds)</td>
+                    <td>{config.get('ramp_up_seconds', 'N/A')}</td>
+                </tr>
+                <tr>
+                    <td>Think Time (seconds)</td>
+                    <td>{config.get('think_time_seconds', 'N/A')}</td>
+                </tr>
+                <tr>
+                    <td>Timeout (seconds)</td>
+                    <td>{config.get('timeout_seconds', 'N/A')}</td>
+                </tr>
+            </table>
+        </div>
+"""
+    
+    # Add error analysis if there are errors
+    errors = summary.get("errors", {})
+    if errors:
+        html_content += """
+        <div class="section">
+            <h2>❌ Error Analysis</h2>
+            <div class="error-analysis">
+"""
+        for error_type, count in errors.items():
+            percentage = (count / total_requests * 100) if total_requests > 0 else 0
+            html_content += f"""
+                <div class="error-item">
+                    <span><strong>{error_type}</strong></span>
+                    <span>{count} ({percentage:.1f}%)</span>
+                </div>
+"""
+        html_content += """
+            </div>
+        </div>
+"""
+    
+    html_content += f"""
+        <div class="footer">
+            <p>Generated by Black-Box Testing Tool | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+        </div>
+    </div>
+</body>
+</html>
+"""
+    
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+
+def generate_stress_test_csv_report(stress_results: Dict[str, Any], output_path: str):
+    """
+    Generate CSV report for stress test results.
+    
+    Args:
+        stress_results: Stress test results dictionary
+        output_path: Path to save CSV report
+    """
+    summary = stress_results.get("summary", {})
+    config = stress_results.get("config", {})
+    
+    with open(output_path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        
+        # Write header
+        writer.writerow([
+            'Metric', 'Value', 'Unit'
+        ])
+        
+        # Write summary metrics
+        writer.writerow(['Total Requests', summary.get('total_requests', 0), 'count'])
+        writer.writerow(['Successful Requests', summary.get('successful_requests', 0), 'count'])
+        writer.writerow(['Failed Requests', summary.get('failed_requests', 0), 'count'])
+        writer.writerow(['Success Rate', f"{summary.get('success_rate', 0):.2f}", '%'])
+        writer.writerow(['Average Response Time', f"{summary.get('avg_response_time', 0):.2f}", 'seconds'])
+        writer.writerow(['Min Response Time', f"{summary.get('min_response_time', 0):.2f}", 'seconds'])
+        writer.writerow(['Max Response Time', f"{summary.get('max_response_time', 0):.2f}", 'seconds'])
+        writer.writerow(['95th Percentile', f"{summary.get('p95_response_time', 0):.2f}", 'seconds'])
+        writer.writerow(['99th Percentile', f"{summary.get('p99_response_time', 0):.2f}", 'seconds'])
+        writer.writerow(['Requests per Second', f"{summary.get('requests_per_second', 0):.2f}", 'rps'])
+        writer.writerow(['Total Duration', f"{summary.get('total_duration', 0):.2f}", 'seconds'])
+        
+        # Write configuration
+        writer.writerow(['', '', ''])  # Empty row
+        writer.writerow(['Configuration', '', ''])
+        writer.writerow(['Concurrent Users', config.get('concurrent_users', 'N/A'), 'users'])
+        writer.writerow(['Duration', config.get('duration_seconds', 'N/A'), 'seconds'])
+        writer.writerow(['Ramp Up', config.get('ramp_up_seconds', 'N/A'), 'seconds'])
+        writer.writerow(['Think Time', config.get('think_time_seconds', 'N/A'), 'seconds'])
+        writer.writerow(['Timeout', config.get('timeout_seconds', 'N/A'), 'seconds'])
+        
+        # Write errors if any
+        errors = summary.get("errors", {})
+        if errors:
+            writer.writerow(['', '', ''])  # Empty row
+            writer.writerow(['Error Analysis', '', ''])
+            for error_type, count in errors.items():
+                percentage = (count / summary.get('total_requests', 1) * 100)
+                writer.writerow([error_type, f"{count} ({percentage:.1f}%)", 'count'])
+
+def generate_stress_test_reports(
+    stress_results: Dict[str, Any],
+    output_dir: str,
+    run_id: str
+) -> Dict[str, str]:
+    """
+    Generate all report formats for stress test results.
+    
+    Args:
+        stress_results: Stress test results dictionary
+        output_dir: Directory to save reports
+        run_id: Unique run identifier
+        
+    Returns:
+        Dictionary with paths to generated reports
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    
+    html_path = os.path.join(output_dir, "stress_test_report.html")
+    csv_path = os.path.join(output_dir, "stress_test_report.csv")
+    json_path = os.path.join(output_dir, "stress_test_results.json")
+    
+    generate_stress_test_html_report(stress_results, html_path, run_id)
+    generate_stress_test_csv_report(stress_results, csv_path)
+    
+    # Save JSON results
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(stress_results, f, indent=2, ensure_ascii=False)
+    
+    return {
+        "html": html_path,
+        "csv": csv_path,
+        "json": json_path
+    }
+

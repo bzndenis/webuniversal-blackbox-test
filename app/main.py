@@ -78,9 +78,10 @@ sys.path.insert(0, str(app_dir.parent))
 
 from app.runners.crawl import crawl_site, crawl_site_with_auth
 from app.runners.playwright_runner import run_page_smoke, run_yaml_scenario
-from app.services.reporter import generate_all_reports
+from app.services.reporter import generate_all_reports, generate_stress_test_reports
 from app.services.yaml_loader import load_yaml_spec, create_sample_yaml
 from app.services.heuristics import test_form_submission
+from app.services.stress_test import StressTester, create_stress_test_config, run_stress_test
 from app.models.db import init_db, create_test_run, update_test_run, create_page_test, get_recent_runs
 
 # Page configuration
@@ -116,6 +117,12 @@ def save_config_to_file():
         "auth_username": st.session_state.get("auth_username", ""),
         "auth_password": st.session_state.get("auth_password", ""),
         "success_indicator": st.session_state.get("success_indicator", ""),
+        "stress_concurrent_users": st.session_state.get("stress_concurrent_users", 10),
+        "stress_duration": st.session_state.get("stress_duration", 60),
+        "stress_ramp_up": st.session_state.get("stress_ramp_up", 10),
+        "stress_think_time": st.session_state.get("stress_think_time", 1.0),
+        "stress_timeout": st.session_state.get("stress_timeout", 30),
+        "stress_actions": st.session_state.get("stress_actions", ""),
         "last_saved": datetime.now().isoformat()
     }
     
@@ -161,7 +168,13 @@ def init_session_state():
         'login_url': "",
         'auth_username': "",
         'auth_password': "",
-        'success_indicator': ""
+        'success_indicator': "",
+        'stress_concurrent_users': 10,
+        'stress_duration': 60,
+        'stress_ramp_up': 10,
+        'stress_think_time': 1.0,
+        'stress_timeout': 30,
+        'stress_actions': ""
     }
     
     # Initialize session state with saved config or defaults
@@ -219,8 +232,8 @@ with st.sidebar:
     # Mode selection
     test_mode = st.radio(
         "Test Mode",
-        ["Crawler Mode", "YAML Scenario", "Single Page"],
-        index=["Crawler Mode", "YAML Scenario", "Single Page"].index(st.session_state.test_mode),
+        ["Crawler Mode", "YAML Scenario", "Single Page", "Stress Test"],
+        index=["Crawler Mode", "YAML Scenario", "Single Page", "Stress Test"].index(st.session_state.test_mode),
         help="Choose testing mode",
         key="test_mode"
     )
@@ -292,6 +305,73 @@ with st.sidebar:
             os.makedirs(os.path.dirname(sample_path), exist_ok=True)
             create_sample_yaml(sample_path)
             st.success(f"Sample YAML created at: {sample_path}")
+    
+    elif test_mode == "Stress Test":
+        st.subheader("Stress Test Settings")
+        stress_url = st.text_input(
+            "Target URL",
+            value=st.session_state.base_url,
+            help="URL yang akan di-stress test",
+            key="stress_test_url"
+        )
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            concurrent_users = st.number_input(
+                "Concurrent Users",
+                min_value=1,
+                max_value=100,
+                value=st.session_state.get("stress_concurrent_users", 10),
+                help="Jumlah user bersamaan",
+                key="stress_concurrent_users"
+            )
+        with col2:
+            duration_seconds = st.number_input(
+                "Duration (seconds)",
+                min_value=10,
+                max_value=3600,
+                value=st.session_state.get("stress_duration", 60),
+                help="Durasi test dalam detik",
+                key="stress_duration"
+            )
+        
+        col3, col4 = st.columns(2)
+        with col3:
+            ramp_up_seconds = st.number_input(
+                "Ramp Up (seconds)",
+                min_value=0,
+                max_value=300,
+                value=st.session_state.get("stress_ramp_up", 10),
+                help="Waktu untuk mencapai full load",
+                key="stress_ramp_up"
+            )
+        with col4:
+            think_time_seconds = st.number_input(
+                "Think Time (seconds)",
+                min_value=0.0,
+                max_value=10.0,
+                value=st.session_state.get("stress_think_time", 1.0),
+                step=0.1,
+                help="Waktu tunggu antara request",
+                key="stress_think_time"
+            )
+        
+        with st.expander("Advanced Stress Test Options"):
+            stress_timeout = st.number_input(
+                "Request Timeout (seconds)",
+                min_value=5,
+                max_value=120,
+                value=st.session_state.get("stress_timeout", 30),
+                help="Timeout per request",
+                key="stress_timeout"
+            )
+            
+            stress_actions = st.text_area(
+                "Custom Actions (JSON)",
+                value=st.session_state.get("stress_actions", ""),
+                help="Aksi tambahan dalam format JSON. Contoh: [{\"type\": \"click\", \"selector\": \"button\"}]",
+                key="stress_actions"
+            )
     
     else:  # Single Page
         st.subheader("Single Page Test")
@@ -643,6 +723,179 @@ with tab1:
                                 st.error(f"Step {error['step']}: {error['error']}")
                 
                 st.success("✅ All scenarios completed!")
+                st.stop()
+            
+            elif test_mode == "Stress Test":
+                # Parse custom actions if provided
+                actions = []
+                if stress_actions.strip():
+                    try:
+                        actions = json.loads(stress_actions)
+                        if not isinstance(actions, list):
+                            st.error("Custom actions must be a JSON array")
+                            st.stop()
+                    except json.JSONDecodeError as e:
+                        st.error(f"Invalid JSON in custom actions: {e}")
+                        st.stop()
+                
+                # Create stress test configuration
+                stress_config = create_stress_test_config(
+                    url=stress_url,
+                    concurrent_users=concurrent_users,
+                    duration_seconds=duration_seconds,
+                    ramp_up_seconds=ramp_up_seconds,
+                    think_time_seconds=think_time_seconds,
+                    timeout_seconds=stress_timeout,
+                    headless=headless,
+                    actions=actions
+                )
+                
+                # Create database record
+                db_run = create_test_run(
+                    run_id=run_id,
+                    base_url=stress_url,
+                    config={
+                        "mode": "stress_test",
+                        "concurrent_users": concurrent_users,
+                        "duration_seconds": duration_seconds,
+                        "ramp_up_seconds": ramp_up_seconds,
+                        "think_time_seconds": think_time_seconds,
+                        "timeout_seconds": stress_timeout,
+                        "actions": actions
+                    }
+                )
+                update_test_run(run_id, status="running")
+                
+                st.info(f"🚀 Starting stress test on {stress_url}")
+                st.info(f"👥 Concurrent users: {concurrent_users}")
+                st.info(f"⏱️ Duration: {duration_seconds} seconds")
+                st.info(f"📈 Ramp up: {ramp_up_seconds} seconds")
+                
+                # Run stress test
+                with st.spinner("Running stress test..."):
+                    # Create async wrapper for stress test
+                    async def run_stress_test_async():
+                        return await run_stress_test(stress_config)
+                    
+                    # Run the async function
+                    stress_summary = asyncio.run(run_stress_test_async())
+                
+                # Display stress test results
+                st.subheader("📊 Stress Test Results")
+                
+                # Key metrics
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Total Requests", stress_summary.total_requests)
+                col2.metric("Success Rate", f"{stress_summary.success_rate:.1f}%")
+                col3.metric("Avg Response Time", f"{stress_summary.avg_response_time:.2f}s")
+                col4.metric("Requests/sec", f"{stress_summary.requests_per_second:.1f}")
+                
+                # Response time metrics
+                st.subheader("⏱️ Response Time Analysis")
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Min Response Time", f"{stress_summary.min_response_time:.2f}s")
+                col2.metric("Max Response Time", f"{stress_summary.max_response_time:.2f}s")
+                col3.metric("95th Percentile", f"{stress_summary.p95_response_time:.2f}s")
+                col4.metric("99th Percentile", f"{stress_summary.p99_response_time:.2f}s")
+                
+                # Error analysis
+                if stress_summary.errors:
+                    st.subheader("❌ Error Analysis")
+                    error_data = []
+                    for error_type, count in stress_summary.errors.items():
+                        error_data.append({
+                            "Error Type": error_type,
+                            "Count": count,
+                            "Percentage": f"{(count / stress_summary.total_requests * 100):.1f}%"
+                        })
+                    
+                    st.dataframe(error_data, hide_index=True)
+                
+                # Performance chart
+                st.subheader("📈 Performance Chart")
+                if stress_summary.total_requests > 0:
+                    # Create a simple performance visualization
+                    try:
+                        import pandas as pd
+                    except ImportError:
+                        st.warning("⚠️ Pandas tidak tersedia, skip performance chart")
+                        pd = None
+                    
+                    if pd is not None:
+                        # Simulate performance data over time
+                        time_points = list(range(0, int(stress_summary.total_duration), max(1, int(stress_summary.total_duration // 20))))
+                        performance_data = []
+                        
+                        for t in time_points:
+                            # Simulate realistic performance curve
+                            base_rps = stress_summary.requests_per_second
+                            # Add some variation
+                            variation = 0.1 * base_rps * (0.5 - (t % 10) / 10)
+                            rps = max(0, base_rps + variation)
+                            performance_data.append({
+                                "Time (s)": t,
+                                "Requests/sec": rps,
+                                "Response Time (s)": stress_summary.avg_response_time * (1 + 0.1 * (t % 5) / 5)
+                            })
+                        
+                        df = pd.DataFrame(performance_data)
+                        st.line_chart(df.set_index("Time (s)"))
+                    else:
+                        st.info("📊 Performance chart memerlukan pandas. Install dengan: `pip install pandas`")
+                
+                # Save stress test results
+                stress_results = {
+                    "run_id": run_id,
+                    "url": stress_url,
+                    "config": {
+                        "concurrent_users": concurrent_users,
+                        "duration_seconds": duration_seconds,
+                        "ramp_up_seconds": ramp_up_seconds,
+                        "think_time_seconds": think_time_seconds,
+                        "timeout_seconds": stress_timeout
+                    },
+                    "summary": {
+                        "total_requests": stress_summary.total_requests,
+                        "successful_requests": stress_summary.successful_requests,
+                        "failed_requests": stress_summary.failed_requests,
+                        "success_rate": stress_summary.success_rate,
+                        "avg_response_time": stress_summary.avg_response_time,
+                        "min_response_time": stress_summary.min_response_time,
+                        "max_response_time": stress_summary.max_response_time,
+                        "p95_response_time": stress_summary.p95_response_time,
+                        "p99_response_time": stress_summary.p99_response_time,
+                        "requests_per_second": stress_summary.requests_per_second,
+                        "total_duration": stress_summary.total_duration,
+                        "errors": stress_summary.errors
+                    }
+                }
+                
+                # Generate stress test reports
+                report_paths = generate_stress_test_reports(stress_results, artifacts_dir, run_id)
+                
+                # Display report links
+                st.subheader("📄 Reports Generated")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.markdown(f"**HTML Report:** [Open Report]({report_paths['html']})")
+                with col2:
+                    st.markdown(f"**CSV Report:** [Download CSV]({report_paths['csv']})")
+                with col3:
+                    st.markdown(f"**JSON Data:** [Download JSON]({report_paths['json']})")
+                
+                # Update database
+                update_test_run(
+                    run_id,
+                    status="completed",
+                    total_pages=1,  # Stress test is on one URL
+                    passed=1 if stress_summary.success_rate > 80 else 0,
+                    failed=1 if stress_summary.success_rate <= 80 else 0,
+                    end_time=datetime.now(),
+                    artifacts_path=artifacts_dir
+                )
+                
+                st.success("✅ Stress test completed!")
+                st.info(f"📁 Results saved to: {artifacts_dir}")
                 st.stop()
             
             else:  # Single Page

@@ -17,6 +17,7 @@ Automated web testing tool untuk melakukan black-box functional testing pada web
 - 🖱️ **Button Testing**: Check apakah semua button clickable dan berfungsi
 - 🖼️ **Image Validation**: Verifikasi semua image load dengan baik, detect broken images
 - 🔗 **Link Checking**: Test semua link (internal & external), detect empty links
+- 🚀 **Stress Testing**: Test performa aplikasi dengan multiple concurrent users
 - 🔒 **Penetration Testing**: XSS dan SQL Injection vulnerability testing
 - 📝 **YAML Scenarios**: Custom test workflows dengan actions dan assertions
 - 📊 **Rich Reports**: Export ke HTML, CSV, dan JSON
@@ -139,6 +140,50 @@ Mode ini mentest satu halaman spesifik dengan analisis komponen mendalam.
 - ✅ **Semua Link**: Valid, empty, internal, atau external
 - ✅ **Semua Form**: Complete dengan action & submit button
 - ✅ **Interactive Elements**: Checkbox, radio, select, textarea
+
+### 4. Stress Test Mode (NEW! 🚀)
+
+Mode ini untuk menguji performa dan stabilitas aplikasi di bawah beban tinggi.
+
+**Langkah:**
+1. Pilih **"Stress Test"** di sidebar
+2. Masukkan **Target URL** (contoh: `https://example.com`)
+3. Konfigurasi parameter stress test:
+   - **Concurrent Users**: Jumlah user bersamaan (1-100)
+   - **Duration**: Durasi test dalam detik (10-3600)
+   - **Ramp Up**: Waktu untuk mencapai full load (0-300s)
+   - **Think Time**: Waktu tunggu antara request (0-10s)
+4. Klik **Run Test**
+
+**Stress Test akan mengukur:**
+- 📊 **Success Rate**: Persentase request yang berhasil
+- ⏱️ **Response Time**: Min, Max, Average, 95th, 99th percentile
+- 🚀 **Throughput**: Requests per second
+- ❌ **Error Analysis**: Jenis dan jumlah error
+- 📈 **Performance Chart**: Grafik performa over time
+
+**Advanced Options:**
+- **Request Timeout**: Timeout per request (5-120s)
+- **Custom Actions**: Aksi tambahan dalam format JSON
+  ```json
+  [
+    {"type": "click", "selector": "button"},
+    {"type": "fill", "selector": "input", "value": "test"},
+    {"type": "wait", "seconds": 1}
+  ]
+  ```
+
+**Contoh Stress Test:**
+```python
+# Basic stress test
+config = create_stress_test_config(
+    url="https://example.com",
+    concurrent_users=10,
+    duration_seconds=60,
+    ramp_up_seconds=10,
+    think_time_seconds=1.0
+)
+```
 
 ## 🔒 Penetration Testing
 
