@@ -1,7 +1,7 @@
 """Form detection and automated testing heuristics."""
 
 from playwright.sync_api import Page, Locator
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import logging
 
 logger = logging.getLogger(__name__)
@@ -309,3 +309,131 @@ def test_form_submission(
     
     return result
 
+
+def perform_login(
+    page: Page,
+    login_url: str,
+    username: str,
+    password: str,
+    success_indicator: Optional[str] = None,
+    timeout_ms: int = 10000
+) -> Dict[str, Any]:
+    """
+    Lakukan proses login menggunakan heuristik umum.
+
+    Args:
+        page: Objek Playwright Page
+        login_url: URL halaman login
+        username: Nilai username/email
+        password: Nilai password
+        success_indicator: Selector CSS atau teks yang menandakan login berhasil
+        timeout_ms: Timeout operasi dalam milidetik
+
+    Returns:
+        Hasil proses login berisi status dan rincian langkah.
+    """
+    result: Dict[str, Any] = {
+        "navigated": False,
+        "filled_username": False,
+        "filled_password": False,
+        "clicked_submit": False,
+        "success": False,
+        "error": None
+    }
+
+    try:
+        # Buka halaman login
+        page.goto(login_url, wait_until="load", timeout=timeout_ms)
+        page.wait_for_timeout(500)
+        result["navigated"] = True
+
+        # Cari field username/email (prioritaskan selector eksplisit jika ada di dataset global)
+        username_locators = [
+            'input[type="email"]',
+            'input[name*="email" i]',
+            'input[id*="email" i]',
+            'input[name*="user" i]',
+            'input[id*="user" i]',
+            'input[type="text"]'
+        ]
+        password_locators = [
+            'input[type="password"]',
+            'input[name*="pass" i]',
+            'input[id*="pass" i]'
+        ]
+
+        def find_first(locators: List[str]) -> Optional[Locator]:
+            for sel in locators:
+                loc = page.locator(sel).first
+                try:
+                    if loc.count() > 0:
+                        return loc
+                except Exception:
+                    continue
+            return None
+
+        user_field = find_first(username_locators)
+        pass_field = find_first(password_locators)
+
+        if user_field is None or pass_field is None:
+            raise RuntimeError("Username/password field not found on login page")
+
+        try:
+            user_field.fill(username)
+            result["filled_username"] = True
+        except Exception as e:
+            logger.warning(f"Failed to fill username: {e}")
+
+        try:
+            pass_field.fill(password)
+            result["filled_password"] = True
+        except Exception as e:
+            logger.warning(f"Failed to fill password: {e}")
+
+        # Klik submit
+        submit_locators = [
+            'button[type="submit"]',
+            'input[type="submit"]',
+            'button:has-text("Login")',
+            'button:has-text("Sign in")',
+            'button:has-text("Masuk")'
+        ]
+        submit_btn = find_first(submit_locators)
+        if submit_btn is None:
+            # fallback: tekan Enter pada password field
+            pass_field.press('Enter')
+            result["clicked_submit"] = True
+        else:
+            submit_btn.click()
+            result["clicked_submit"] = True
+
+        # Tunggu settle setelah submit
+        try:
+            page.wait_for_load_state("networkidle", timeout=timeout_ms)
+        except Exception:
+            page.wait_for_timeout(1000)
+
+        # Verifikasi sukses login bila ada indikator
+        if success_indicator:
+            # Coba sebagai selector CSS dulu
+            try:
+                if page.locator(success_indicator).count() > 0:
+                    result["success"] = True
+                else:
+                    # Fallback: cek teks pada halaman
+                    content = page.content()
+                    result["success"] = success_indicator in (content or "")
+            except Exception:
+                content = page.content()
+                result["success"] = success_indicator in (content or "")
+        else:
+            # Tanpa indikator spesifik, anggap sukses jika tidak ada error umum di halaman
+            error_candidates = ['.error', '.alert-danger', '.invalid-feedback']
+            has_errors = any(page.locator(sel).count() > 0 for sel in error_candidates)
+            result["success"] = not has_errors
+
+    except Exception as e:
+        result["error"] = str(e)
+        logger.error(f"Login error: {e}")
+
+    return result

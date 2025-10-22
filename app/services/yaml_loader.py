@@ -1,7 +1,9 @@
 """YAML test scenario loader with validation."""
 
 import yaml
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field
+from pydantic import field_validator, model_validator
+from pydantic.config import ConfigDict
 from typing import List, Dict, Any, Optional, Union
 import os
 
@@ -21,7 +23,8 @@ class YAMLStep(BaseModel):
     # For expect_status
     status_in: Optional[List[int]] = Field(None, alias='in')
     
-    @validator('action')
+    @field_validator('action')
+    @classmethod
     def validate_action(cls, v):
         """Validate action type."""
         valid_actions = [
@@ -33,8 +36,7 @@ class YAMLStep(BaseModel):
             raise ValueError(f"Invalid action: {v}. Must be one of {valid_actions}")
         return v
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class YAMLScenario(BaseModel):
@@ -50,6 +52,21 @@ class YAMLAuth(BaseModel):
     credentials: Optional[Dict[str, str]] = None
     success_indicator: Optional[str] = None
 
+    @model_validator(mode='after')
+    def validate_auth(self):
+        """Ensure required fields exist when auth is enabled."""
+        if self.enabled:
+            if not self.url:
+                raise ValueError("auth.url is required when auth.enabled is true")
+            creds = self.credentials or {}
+            if not creds:
+                raise ValueError("auth.credentials is required when auth.enabled is true")
+            if not (creds.get('username') or creds.get('email')):
+                raise ValueError("auth.credentials must include 'username' or 'email'")
+            if not creds.get('password'):
+                raise ValueError("auth.credentials must include 'password'")
+        return self
+
 
 class YAMLTestSpec(BaseModel):
     """Complete YAML test specification."""
@@ -57,7 +74,8 @@ class YAMLTestSpec(BaseModel):
     scenarios: List[YAMLScenario]
     auth: Optional[YAMLAuth] = None
     
-    @validator('base_url')
+    @field_validator('base_url')
+    @classmethod
     def validate_base_url(cls, v):
         """Validate base URL format."""
         if not v.startswith('http://') and not v.startswith('https://'):
@@ -133,7 +151,16 @@ def create_sample_yaml(output_path: str) -> None:
                     {'action': 'screenshot', 'path': 'after_click.png'}
                 ]
             }
-        ]
+        ],
+        'auth': {
+            'enabled': False,
+            'url': 'https://example.com/login',
+            'credentials': {
+                'username': 'user@example.com',
+                'password': 'secret'
+            },
+            'success_indicator': '#dashboard, text=Dashboard'
+        }
     }
     
     os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else '.', exist_ok=True)

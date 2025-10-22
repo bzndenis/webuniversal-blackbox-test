@@ -84,3 +84,29 @@ def test_yaml_action_validation():
     with pytest.raises(Exception):
         validate_yaml_spec(data)
 
+
+def test_yaml_auth_validation_required_fields():
+    """Auth enabled must require url and credentials."""
+    data = {
+        "base_url": "https://example.com",
+        "scenarios": [{"name": "Test", "steps": [{"action": "goto", "url": "/"}]}],
+        "auth": {"enabled": True}
+    }
+    with pytest.raises(Exception):
+        validate_yaml_spec(data)
+
+
+def test_yaml_auth_validation_valid():
+    """Valid auth block should pass validation."""
+    data = {
+        "base_url": "https://example.com",
+        "scenarios": [{"name": "Test", "steps": [{"action": "goto", "url": "/"}]}],
+        "auth": {
+            "enabled": True,
+            "url": "https://example.com/login",
+            "credentials": {"username": "user@example.com", "password": "secret"},
+            "success_indicator": "#dashboard"
+        }
+    }
+    spec = validate_yaml_spec(data)
+    assert spec.auth and spec.auth.enabled is True

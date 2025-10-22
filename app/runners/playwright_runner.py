@@ -13,6 +13,7 @@ from typing import Dict, Any, List, Optional
 from playwright.sync_api import sync_playwright, Page, Browser, BrowserContext
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from .component_tester import run_comprehensive_component_test
+from app.services.heuristics import perform_login
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -25,7 +26,8 @@ def run_page_smoke(
     out_dir: str,
     timeout: int = DEFAULT_TIMEOUT,
     headless: bool = True,
-    deep_component_test: bool = False
+    deep_component_test: bool = False,
+    auth: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Jalankan smoke test pada satu halaman.
@@ -108,7 +110,28 @@ def run_page_smoke(
             
             page.on("requestfailed", handle_request_failed)
 
-            # Navigate and measure load time
+            # Optional: Authentication step before testing page
+            if auth and auth.get("enabled"):
+                try:
+                    login_url = auth.get("url") or url
+                    creds = auth.get("credentials", {}) or {}
+                    username = creds.get("username") or creds.get("email") or ""
+                    password = creds.get("password") or ""
+                    success_indicator = auth.get("success_indicator")
+                    logger.info("Performing login before page test")
+                    auth_result = perform_login(
+                        page=page,
+                        login_url=login_url,
+                        username=username,
+                        password=password,
+                        success_indicator=success_indicator,
+                        timeout_ms=timeout,
+                    )
+                    result["auth"] = auth_result
+                except Exception as auth_e:
+                    result["auth"] = {"success": False, "error": str(auth_e)}
+
+            # Navigate and measure load time for target page
             logger.info(f"Testing page: {url}")
             t0 = time.time()
             resp = page.goto(url, wait_until="load", timeout=timeout)
@@ -287,7 +310,8 @@ def run_yaml_scenario(
     base_url: str,
     out_dir: str,
     timeout: int = DEFAULT_TIMEOUT,
-    headless: bool = True
+    headless: bool = True,
+    auth: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Jalankan skenario test dari YAML spec.
@@ -322,6 +346,27 @@ def run_yaml_scenario(
             page.set_default_timeout(timeout)
             
             last_response = None
+
+            # Optional authentication before running steps
+            if auth and auth.get("enabled"):
+                try:
+                    login_url = auth.get("url") or base_url
+                    creds = auth.get("credentials", {}) or {}
+                    username = creds.get("username") or creds.get("email") or ""
+                    password = creds.get("password") or ""
+                    success_indicator = auth.get("success_indicator")
+                    logger.info("Performing login before executing YAML scenario")
+                    auth_result = perform_login(
+                        page=page,
+                        login_url=login_url,
+                        username=username,
+                        password=password,
+                        success_indicator=success_indicator,
+                        timeout_ms=timeout,
+                    )
+                    result["auth"] = auth_result
+                except Exception as auth_e:
+                    result["auth"] = {"success": False, "error": str(auth_e)}
             
             for idx, step in enumerate(scenario.get("steps", [])):
                 action = step.get("action")

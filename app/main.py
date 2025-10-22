@@ -231,6 +231,31 @@ with st.sidebar:
         value=False,
         help="Automatically detect and test form submissions"
     )
+
+    st.divider()
+
+    # Authentication
+    st.subheader("Authentication")
+    auth_enabled = st.checkbox("Require Login", value=False, help="Login sebelum test dijalankan")
+    login_url = st.text_input("Login URL", value="", help="Halaman login")
+    col_auth1, col_auth2 = st.columns(2)
+    with col_auth1:
+        auth_username = st.text_input("Username/Email", value="", help="Kredensial login")
+    with col_auth2:
+        auth_password = st.text_input("Password", value="", type="password")
+    success_indicator = st.text_input(
+        "Success Indicator (CSS atau teks)",
+        value="",
+        help="Misal: #dashboard atau teks 'Dashboard'"
+    )
+    auth_config = None
+    if auth_enabled:
+        auth_config = {
+            "enabled": True,
+            "url": login_url or None,
+            "credentials": {"username": auth_username or None, "password": auth_password or None},
+            "success_indicator": success_indicator or None,
+        }
     
     st.divider()
     
@@ -324,7 +349,8 @@ with tab1:
                             base_url=spec.base_url,
                             out_dir=scenario_dir,
                             timeout=timeout * 1000,
-                            headless=headless
+                            headless=headless,
+                            auth=(spec.auth.dict() if (spec.auth and spec.auth.enabled) else None)
                         )
                     
                     # Display scenario result
@@ -372,7 +398,8 @@ with tab1:
                         out_dir=page_dir,
                         timeout=timeout * 1000,
                         headless=headless,
-                        deep_component_test=deep_component_test
+                        deep_component_test=deep_component_test,
+                        auth=auth_config
                     )
                     
                     # Test forms if enabled
