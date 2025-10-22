@@ -333,6 +333,15 @@ with st.sidebar:
         help="Automatically detect and test form submissions",
         key="test_forms"
     )
+    
+    # Safe mode option for form testing
+    if test_forms:
+        form_safe_mode = st.checkbox(
+            "🛡️ Safe Mode (Recommended)",
+            value=st.session_state.get("form_safe_mode", True),
+            help="Only test form filling without submission to avoid session loss and login redirects",
+            key="form_safe_mode"
+        )
 
     st.divider()
 
@@ -617,6 +626,7 @@ with tab1:
                         headless=headless,
                         deep_component_test=deep_component_test,
                         test_forms=test_forms,
+                        form_safe_mode=st.session_state.get("form_safe_mode", True),
                         auth=auth_config
                     )
                     
@@ -806,6 +816,93 @@ with tab1:
                                                 } for inp in form['inputs']]
                                                 st.dataframe(input_data, width="stretch")
                                             st.divider()
+                
+                # Display Form Testing Results (if enabled)
+                if test_forms and results:
+                    st.subheader("📋 Form Testing Results")
+                    
+                    for idx, r in enumerate(results):
+                        if 'form_test' in r and r['form_test']:
+                            form_test = r['form_test']
+                            
+                            with st.expander(f"📝 Form Test Results - {r['url'][:80]}..."):
+                                # Form test summary
+                                col1, col2, col3 = st.columns(3)
+                                
+                                col1.metric(
+                                    "Form Test Status",
+                                    "✅ Success" if form_test.get('success') else "❌ Failed",
+                                    delta="Success" if form_test.get('success') else "Failed"
+                                )
+                                
+                                fill_result = form_test.get('fill_result', {})
+                                col2.metric(
+                                    "Fields Filled",
+                                    fill_result.get('fields_filled', 0),
+                                    delta=f"{fill_result.get('fields_failed', 0)} failed" if fill_result.get('fields_failed', 0) > 0 else "All OK"
+                                )
+                                
+                                col3.metric(
+                                    "Form Submitted",
+                                    "✅ Yes" if form_test.get('submitted') else "❌ No",
+                                    delta="Submitted" if form_test.get('submitted') else "Not Submitted"
+                                )
+                                
+                                # Form test details
+                                st.write("**Form Test Details:**")
+                                
+                                # Safe Mode indicator
+                                if form_test.get('safe_mode'):
+                                    st.info("🛡️ **Safe Mode Active** - Form filled without submission to preserve session")
+                                
+                                # Success/Error indicators
+                                if form_test.get('has_success_message'):
+                                    st.success("✅ Success message detected on page")
+                                
+                                if form_test.get('has_error_message'):
+                                    st.error("❌ Error message detected on page")
+                                
+                                # URL change
+                                if form_test.get('url_changed'):
+                                    st.info("🔄 URL changed after form submission")
+                                
+                                # Validation errors
+                                if form_test.get('form_validation_errors'):
+                                    st.error("⚠️ Form validation errors detected:")
+                                    for error in form_test['form_validation_errors']:
+                                        st.write(f"- {error.get('text', 'N/A')}")
+                                
+                                # Network errors
+                                if form_test.get('network_errors'):
+                                    st.error("🌐 Network errors during form submission:")
+                                    for error in form_test['network_errors']:
+                                        st.write(f"- {error.get('url', 'N/A')}: {error.get('failure', 'N/A')}")
+                                
+                                # Screenshot evidence
+                                st.write("**📸 Screenshot Evidence:**")
+                                
+                                screenshot_before = form_test.get('screenshot_before_path')
+                                screenshot_after = form_test.get('screenshot_after_path')
+                                
+                                if screenshot_before and os.path.exists(screenshot_before):
+                                    st.write("**Before Form Submission:**")
+                                    st.image(screenshot_before, caption="Form before submission", width="stretch")
+                                
+                                if screenshot_after and os.path.exists(screenshot_after):
+                                    if form_test.get('safe_mode'):
+                                        st.write("**After Form Filling (Safe Mode):**")
+                                        st.image(screenshot_after, caption="Form after filling (submission skipped)", width="stretch")
+                                    else:
+                                        st.write("**After Form Submission:**")
+                                        st.image(screenshot_after, caption="Form after submission", width="stretch")
+                                
+                                # Form test errors
+                                if form_test.get('errors'):
+                                    st.error("**Form Test Errors:**")
+                                    for error in form_test['errors']:
+                                        st.write(f"- {error}")
+                                
+                                st.divider()
                 
                 # Generate reports
                 st.subheader("📄 Export Reports")

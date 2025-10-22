@@ -55,6 +55,7 @@ def run_page_smoke(
     headless: bool = True,
     deep_component_test: bool = False,
     test_forms: bool = False,
+    form_safe_mode: bool = True,
     auth: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
@@ -67,6 +68,7 @@ def run_page_smoke(
         headless: Run browser in headless mode (default: True)
         deep_component_test: Run comprehensive component testing (default: False)
         test_forms: Test form submission (default: False)
+        form_safe_mode: Use safe mode for form testing to avoid session loss (default: True)
         auth: Authentication configuration (optional)
         
     Returns:
@@ -297,7 +299,16 @@ def run_page_smoke(
                 try:
                     from app.services.heuristics import test_form_submission
                     logger.info(f"Testing form submission for: {url}")
-                    form_result = test_form_submission(page, 0, timeout_ms=timeout, out_dir=out_dir)
+                    
+                    # Use safe mode to avoid session loss
+                    # Safe mode only tests form filling without submission
+                    form_result = test_form_submission(
+                        page, 
+                        form_index=0, 
+                        timeout_ms=timeout, 
+                        out_dir=out_dir,
+                        safe_mode=form_safe_mode  # Use safe mode parameter
+                    )
                     
                     # Form testing screenshots are handled in test_form_submission function
                     # and saved to files, not stored as bytes in result

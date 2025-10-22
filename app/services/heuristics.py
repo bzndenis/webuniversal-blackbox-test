@@ -3,6 +3,7 @@
 from playwright.sync_api import Page, Locator
 from typing import Dict, Any, List, Optional
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -143,15 +144,109 @@ def fill_form(
     }
     
     try:
+        # Enhanced form detection with better debugging
         forms = page.locator('form')
-        if forms.count() <= form_index:
-            result['errors'].append(f"Form index {form_index} not found")
+        form_count = forms.count()
+        logger.info(f"Found {form_count} forms on page")
+        
+        if form_count == 0:
+            logger.warning("No forms found, trying alternative selectors...")
+            
+            # Try alternative form selectors
+            alt_form_selectors = [
+                'form',
+                '[role="form"]',
+                '.form',
+                '#form',
+                'div[class*="form"]',
+                'section[class*="form"]'
+            ]
+            
+            for selector in alt_form_selectors:
+                alt_forms = page.locator(selector)
+                count = alt_forms.count()
+                if count > 0:
+                    logger.info(f"Found {count} elements with selector '{selector}'")
+                    forms = alt_forms
+                    form_count = count
+                    break
+        
+        if form_count == 0:
+            result['errors'].append("No forms found on page")
+            logger.error("No forms found with any selector")
+            return result
+        
+        if form_count <= form_index:
+            result['errors'].append(f"Form index {form_index} not found (only {form_count} forms available)")
+            logger.error(f"Form index {form_index} not found (only {form_count} forms available)")
             return result
         
         form = forms.nth(form_index)
+        logger.info(f"Using form {form_index} with {form_count} total forms available")
         
-        # Fill text inputs
-        text_inputs = form.locator('input[type="text"], input[type="email"], input[type="tel"], input[type="url"], input:not([type])')
+        # Fill text inputs - expanded selectors for modern frameworks
+        text_input_selectors = [
+            'input[type="text"]',
+            'input[type="email"]', 
+            'input[type="tel"]',
+            'input[type="url"]',
+            'input[type="search"]',
+            'input:not([type])',
+            'input[type="number"]',
+            'input[type="date"]',
+            'input[type="time"]',
+            'input[type="datetime-local"]',
+            'input[type="month"]',
+            'input[type="week"]',
+            'input[type="color"]',
+            'input[type="range"]',
+            'input[type="file"]',
+            'input[type="checkbox"]',
+            'input[type="radio"]',
+            'input[type="hidden"]',
+            'input',  # Catch all inputs
+            'textarea',
+            'select'
+        ]
+        
+        # Try each selector individually for better debugging
+        total_inputs = 0
+        for selector in text_input_selectors:
+            try:
+                inputs = form.locator(selector)
+                count = inputs.count()
+                if count > 0:
+                    logger.info(f"Found {count} elements with selector '{selector}'")
+                    total_inputs += count
+            except Exception as e:
+                logger.debug(f"Error with selector '{selector}': {e}")
+        
+        logger.info(f"Total inputs found: {total_inputs}")
+        
+        # Use comprehensive selector with better debugging
+        text_inputs = form.locator('input, textarea, select')
+        logger.info(f"Found {text_inputs.count()} total inputs in form {form_index}")
+        
+        # Additional debugging - check if form is actually found
+        if text_inputs.count() == 0:
+            logger.warning(f"No inputs found in form {form_index}, trying alternative selectors...")
+            
+            # Try alternative selectors
+            alt_selectors = [
+                'input:not([type="hidden"])',
+                'input[type="text"], input[type="email"], input[type="password"], input[type="number"], input[type="date"], input[type="time"]',
+                'textarea',
+                'select'
+            ]
+            
+            for alt_selector in alt_selectors:
+                alt_inputs = form.locator(alt_selector)
+                count = alt_inputs.count()
+                if count > 0:
+                    logger.info(f"Found {count} inputs with alternative selector: {alt_selector}")
+                    text_inputs = alt_inputs
+                    break
+        
         for i in range(text_inputs.count()):
             try:
                 input_elem = text_inputs.nth(i)
@@ -159,75 +254,162 @@ def fill_form(
                 input_type = input_elem.get_attribute('type') or 'text'
                 placeholder = input_elem.get_attribute('placeholder') or ''
                 
-                value = generate_dummy_data(input_type, name, placeholder)
-                input_elem.fill(value)
-                result['fields_filled'] += 1
-                logger.debug(f"Filled input '{name}' with '{value}'")
+                # Get tag name safely
+                try:
+                    tag_name = input_elem.evaluate('el => el.tagName').lower()
+                except Exception:
+                    tag_name = 'unknown'
+                
+                logger.info(f"Processing input {i}: tag={tag_name}, type={input_type}, name={name}")
+                
+                # Skip hidden inputs
+                if input_type == 'hidden':
+                    logger.debug(f"Skipping hidden input: {name}")
+                    continue
+                
+                # Check if input is visible and enabled with better error handling
+                try:
+                    is_visible = input_elem.is_visible()
+                    is_disabled = input_elem.is_disabled()
+                    logger.info(f"Input {i}: visible={is_visible}, disabled={is_disabled}")
+                    
+                    if not is_visible:
+                        logger.info(f"Skipping invisible input: {name}")
+                        continue
+                        
+                    if is_disabled:
+                        logger.info(f"Skipping disabled input: {name}")
+                        continue
+                        
+                except Exception as e:
+                    logger.warning(f"Could not check visibility/disabled for input {i}: {e}")
+                    # Continue anyway, might be a framework issue
+                    logger.info(f"Attempting to fill input {i} anyway...")
+                
+                # Handle different input types
+                if tag_name == 'select':
+                    # Handle select elements
+                    options = input_elem.locator('option')
+                    if options.count() > 1:
+                        input_elem.select_option(index=1)
+                        result['fields_filled'] += 1
+                        logger.info(f"Selected option in select '{name}'")
+                elif input_type in ['checkbox', 'radio']:
+                    # Handle checkboxes and radio buttons
+                    if not input_elem.is_checked():
+                        input_elem.check()
+                        result['fields_filled'] += 1
+                        logger.info(f"Checked {input_type} '{name}'")
+                elif input_type == 'file':
+                    # Skip file inputs for now
+                    logger.debug(f"Skipping file input: {name}")
+                    continue
+                else:
+                    # Handle text inputs
+                    value = generate_dummy_data(input_type, name, placeholder)
+                    input_elem.fill(value)
+                    result['fields_filled'] += 1
+                    logger.info(f"Filled input '{name}' (type: {input_type}) with '{value}'")
+                    
             except Exception as e:
                 result['fields_failed'] += 1
                 result['errors'].append(f"Failed to fill input {i}: {str(e)}")
+                logger.error(f"Failed to fill input {i}: {e}")
         
-        # Fill textareas
-        textareas = form.locator('textarea')
-        for i in range(textareas.count()):
-            try:
-                textarea = textareas.nth(i)
-                name = textarea.get_attribute('name') or ''
-                value = generate_dummy_data('textarea', name)
-                textarea.fill(value)
-                result['fields_filled'] += 1
-            except Exception as e:
-                result['fields_failed'] += 1
-                result['errors'].append(f"Failed to fill textarea {i}: {str(e)}")
-        
-        # Fill password inputs
-        password_inputs = form.locator('input[type="password"]')
-        for i in range(password_inputs.count()):
-            try:
-                password_inputs.nth(i).fill('Test123!@#')
-                result['fields_filled'] += 1
-            except Exception as e:
-                result['fields_failed'] += 1
-        
-        # Fill number inputs
-        number_inputs = form.locator('input[type="number"]')
-        for i in range(number_inputs.count()):
-            try:
-                number_inputs.nth(i).fill('42')
-                result['fields_filled'] += 1
-            except Exception as e:
-                result['fields_failed'] += 1
-        
-        # Handle selects
-        selects = form.locator('select')
-        for i in range(selects.count()):
-            try:
-                select = selects.nth(i)
-                options = select.locator('option')
-                if options.count() > 1:  # Skip if only placeholder
-                    select.select_option(index=1)
-                    result['fields_filled'] += 1
-            except Exception as e:
-                result['fields_failed'] += 1
+        # All input types are now handled in the main loop above
         
         # Submit if requested
         if submit:
             try:
-                # Look for submit button
-                submit_button = form.locator('button[type="submit"], input[type="submit"]').first
-                if submit_button.count() > 0:
+                # Look for submit button with more selectors
+                submit_selectors = [
+                    'button[type="submit"]',
+                    'input[type="submit"]',
+                    'button:has-text("Submit")',
+                    'button:has-text("Submit order")',
+                    'button:has-text("Send")',
+                    'button:has-text("Post")',
+                    'button:has-text("Save")',
+                    'button:has-text("Send Message")',
+                    'button:has-text("Submit Form")',
+                    'button:not([type])',  # Button without type (defaults to submit)
+                    'input[type="button"]:has-text("Submit")',
+                    'button'  # Any button in form (fallback)
+                ]
+                
+                submit_button = None
+                for selector in submit_selectors:
+                    try:
+                        btn = form.locator(selector).first
+                        if btn.count() > 0 and btn.is_visible() and not btn.is_disabled():
+                            submit_button = btn
+                            logger.info(f"Found submit button with selector: {selector}")
+                            break
+                    except Exception:
+                        continue
+                
+                if submit_button:
                     submit_button.click()
                     result['submitted'] = True
+                    logger.info("Form submitted via submit button")
                     page.wait_for_timeout(1000)  # Wait for submission
                 else:
                     # Try to submit via form
                     form.evaluate('form => form.submit()')
                     result['submitted'] = True
+                    logger.info("Form submitted via form.submit()")
             except Exception as e:
                 result['errors'].append(f"Failed to submit form: {str(e)}")
+                logger.error(f"Failed to submit form: {e}")
+        
+        logger.info(f"Form filling completed: {result['fields_filled']} filled, {result['fields_failed']} failed")
+        
+        # If no fields were filled, try a more aggressive approach
+        if result['fields_filled'] == 0:
+            logger.warning("No fields were filled with standard approach, trying aggressive detection...")
+            
+            # Try to find any input on the page, not just in form
+            page_inputs = page.locator('input:not([type="hidden"]), textarea, select')
+            logger.info(f"Found {page_inputs.count()} inputs on entire page")
+            
+            # Also try to find form-like containers
+            form_containers = page.locator('div[class*="form"], section[class*="form"], div[class*="field"], div[class*="input"]')
+            logger.info(f"Found {form_containers.count()} form-like containers")
+            
+            for i in range(min(page_inputs.count(), 20)):  # Increased limit
+                try:
+                    input_elem = page_inputs.nth(i)
+                    name = input_elem.get_attribute('name') or f'input_{i}'
+                    input_type = input_elem.get_attribute('type') or 'text'
+                    placeholder = input_elem.get_attribute('placeholder') or ''
+                    
+                    # Check if it's visible and not disabled
+                    if input_elem.is_visible() and not input_elem.is_disabled():
+                        try:
+                            if input_type in ['checkbox', 'radio']:
+                                if not input_elem.is_checked():
+                                    input_elem.check()
+                                    result['fields_filled'] += 1
+                                    logger.info(f"Aggressively filled {input_type} '{name}'")
+                            elif input_type == 'file':
+                                # Skip file inputs for now
+                                logger.debug(f"Skipping file input: {name}")
+                                continue
+                            else:
+                                value = generate_dummy_data(input_type, name, placeholder)
+                                input_elem.fill(value)
+                                result['fields_filled'] += 1
+                                logger.info(f"Aggressively filled input '{name}' with '{value}'")
+                        except Exception as e:
+                            logger.debug(f"Could not fill input {i} aggressively: {e}")
+                except Exception as e:
+                    logger.debug(f"Error in aggressive filling for input {i}: {e}")
+            
+            logger.info(f"Aggressive filling completed: {result['fields_filled']} filled")
     
     except Exception as e:
         result['errors'].append(f"Form filling error: {str(e)}")
+        logger.error(f"Form filling error: {e}")
     
     return result
 
@@ -236,7 +418,8 @@ def test_form_submission(
     page: Page,
     form_index: int = 0,
     timeout_ms: int = 5000,
-    out_dir: str = None
+    out_dir: str = None,
+    safe_mode: bool = True
 ) -> Dict[str, Any]:
     """
     Test form submission dengan validasi yang lebih komprehensif.
@@ -246,6 +429,7 @@ def test_form_submission(
         form_index: Index of form to test
         timeout_ms: Timeout untuk menunggu response
         out_dir: Directory untuk menyimpan screenshot (optional)
+        safe_mode: Jika True, hanya test form filling tanpa submit untuk menghindari session loss
         
     Returns:
         Test result dictionary dengan detail yang lebih lengkap
@@ -275,13 +459,43 @@ def test_form_submission(
             except Exception:
                 pass
         
-        # Fill the form
+        # Fill the form first
         fill_result = fill_form(page, form_index, submit=False)
         result['fill_result'] = fill_result
+        result['submitted'] = fill_result.get('submitted', False)
         
         if fill_result['fields_filled'] == 0:
             result['errors'].append("No fields were filled")
             return result
+        
+        # Check if we're in safe mode to avoid session loss
+        if safe_mode:
+            logger.info("Safe mode enabled - only testing form filling, skipping submission to avoid session loss")
+            
+            # Take screenshot after form filling (before submission)
+            if out_dir:
+                try:
+                    after_path = os.path.join(out_dir, "form_after.png")
+                    page.screenshot(path=after_path, full_page=True)
+                    result['screenshot_after_path'] = after_path
+                    logger.info(f"Screenshot saved to: {after_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to take screenshot after form filling: {e}")
+            
+            result['success'] = True
+            result['submitted'] = False
+            result['safe_mode'] = True
+            result['message'] = "Form filled successfully in safe mode (submission skipped to preserve session)"
+            return result
+        
+        # If form was already submitted in fill_form, we're done
+        if fill_result.get('submitted'):
+            logger.info("Form was already submitted in fill_form")
+            result['submitted'] = True
+        else:
+            # Form was filled but not submitted, so we need to submit it
+            logger.info("Form was filled but not submitted, attempting submission...")
+            # The submission logic is already handled in the main flow below
         
         # Simpan URL awal
         initial_url = page.url
@@ -297,104 +511,167 @@ def test_form_submission(
         
         page.on("requestfailed", handle_request_failed)
         
-        # Submit form
-        forms = page.locator('form')
-        if forms.count() <= form_index:
-            result['errors'].append(f"Form index {form_index} not found")
-            return result
-            
-        form = forms.nth(form_index)
-        submit_button = form.locator('button[type="submit"], input[type="submit"]').first
-        
-        if submit_button.count() > 0:
-            # Submit form
-            submit_button.click()
-            
-            # Wait for response dengan timeout
+        # Submit form only if not already submitted
+        if not result.get('submitted', False):
             try:
-                page.wait_for_load_state("networkidle", timeout=timeout_ms)
-            except Exception:
-                # Fallback jika networkidle timeout
-                page.wait_for_timeout(2000)
-            
-            # Simpan screenshot setelah submit ke file jika out_dir tersedia
-            if out_dir:
-                try:
-                    after_path = os.path.join(out_dir, "form_after.png")
-                    page.screenshot(path=after_path, full_page=True)
-                    result['screenshot_after_path'] = after_path
-                except Exception:
-                    pass
-            
-            # Check URL change
-            result['url_changed'] = page.url != initial_url
-            result['redirected'] = result['url_changed']
-            
-            # Check for validation errors (lebih comprehensive)
-            validation_error_selectors = [
-                '.error', '.alert-danger', '.invalid-feedback', '.is-invalid',
-                '[role="alert"]', '.error-message', '.field-error',
-                '.validation-error', '.form-error', '.input-error',
-                '[class*="error"]', '[class*="invalid"]'
-            ]
-            
-            for selector in validation_error_selectors:
-                elements = page.locator(selector)
-                if elements.count() > 0:
-                    for i in range(min(elements.count(), 5)):  # Limit to 5 errors
-                        error_text = elements.nth(i).text_content()
-                        if error_text and error_text.strip():
-                            result['form_validation_errors'].append({
-                                'selector': selector,
-                                'text': error_text.strip()[:200]  # Limit text length
-                            })
-                    result['has_error_message'] = True
-            
-            # Check for success indicators (lebih comprehensive)
-            success_selectors = [
-                '.success', '.alert-success', '.success-message',
-                '[role="status"]', '.form-success', '.submission-success',
-                '.thank-you', '.confirmation', '[class*="success"]'
-            ]
-            
-            for selector in success_selectors:
-                elements = page.locator(selector)
-                if elements.count() > 0:
-                    for i in range(min(elements.count(), 3)):  # Limit to 3 success messages
-                        success_text = elements.nth(i).text_content()
-                        if success_text and success_text.strip():
-                            result['has_success_message'] = True
+                forms = page.locator('form')
+                form_count = forms.count()
+                logger.info(f"Found {form_count} forms for final submission")
+                
+                if form_count == 0:
+                    logger.warning("No forms found for final submission, trying alternative selectors...")
+                    
+                    # Try alternative form selectors
+                    alt_form_selectors = [
+                        'form',
+                        '[role="form"]',
+                        '.form',
+                        '#form',
+                        'div[class*="form"]',
+                        'section[class*="form"]'
+                    ]
+                    
+                    for selector in alt_form_selectors:
+                        alt_forms = page.locator(selector)
+                        count = alt_forms.count()
+                        if count > 0:
+                            logger.info(f"Found {count} elements with selector '{selector}' for final submission")
+                            forms = alt_forms
+                            form_count = count
                             break
-                    if result['has_success_message']:
-                        break
-            
-            # Check for common success indicators in text
-            page_content = page.content()
-            success_indicators = [
-                'thank you', 'success', 'submitted', 'received',
-                'confirmation', 'complete', 'done'
-            ]
-            
-            if any(indicator in page_content.lower() for indicator in success_indicators):
-                result['has_success_message'] = True
-            
-            # Simpan network errors
-            result['network_errors'] = network_errors
-            
-            # Determine overall success
-            if result['has_error_message'] or network_errors:
-                result['success'] = False
-            elif result['has_success_message'] or result['redirected']:
-                result['success'] = True
-            else:
-                # Ambiguous case - check if form is still there (might indicate failure)
-                remaining_forms = page.locator('form').count()
-                if remaining_forms == 0:
-                    result['success'] = True  # Form disappeared, likely successful
+                
+                if form_count == 0:
+                    result['errors'].append("No forms found for final submission")
+                    logger.error("No forms found for final submission with any selector")
+                    return result
+                    
+                if form_count <= form_index:
+                    result['errors'].append(f"Form index {form_index} not found for final submission (only {form_count} forms available)")
+                    logger.error(f"Form index {form_index} not found for final submission (only {form_count} forms available)")
+                    return result
+                    
+                form = forms.nth(form_index)
+                logger.info(f"Using form {form_index} for final submission with {form_count} total forms available")
+                
+                submit_button = form.locator('button[type="submit"], input[type="submit"]').first
+                
+                if submit_button.count() > 0:
+                    # Submit form
+                    submit_button.click()
+                    result['submitted'] = True
+                    logger.info("Form submitted via submit button in final submission")
+                    
+                    # Wait for response dengan timeout
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=timeout_ms)
+                    except Exception:
+                        # Fallback jika networkidle timeout
+                        page.wait_for_timeout(2000)
                 else:
-                    result['success'] = False  # Form still there, might have failed
+                    # Try to submit via form
+                    form.evaluate('form => form.submit()')
+                    result['submitted'] = True
+                    logger.info("Form submitted via form.submit() in final submission")
+                    
+            except Exception as e:
+                result['errors'].append(f"Failed to submit form in final submission: {str(e)}")
+                logger.error(f"Failed to submit form in final submission: {e}")
+                return result
         else:
-            result['errors'].append("No submit button found")
+            logger.info("Form already submitted, skipping final submission")
+        
+        # Simpan screenshot setelah submit ke file jika out_dir tersedia
+        if out_dir:
+            try:
+                after_path = os.path.join(out_dir, "form_after.png")
+                page.screenshot(path=after_path, full_page=True)
+                result['screenshot_after_path'] = after_path
+            except Exception:
+                pass
+        
+        # Check URL change and detect login redirect
+        result['url_changed'] = page.url != initial_url
+        result['redirected'] = result['url_changed']
+        
+        # Check if redirected to login page
+        current_url = page.url.lower()
+        login_indicators = [
+            '/login', '/signin', '/auth', '/masuk', '/admin/login',
+            'login', 'signin', 'authentication'
+        ]
+        
+        is_login_redirect = any(indicator in current_url for indicator in login_indicators)
+        result['redirected_to_login'] = is_login_redirect
+        
+        if is_login_redirect:
+            logger.warning(f"Form submission redirected to login page: {page.url}")
+            result['errors'].append("Form submission caused redirect to login page - possible session loss")
+            result['success'] = False
+            return result
+        
+        # Check for validation errors (lebih comprehensive)
+        validation_error_selectors = [
+            '.error', '.alert-danger', '.invalid-feedback', '.is-invalid',
+            '[role="alert"]', '.error-message', '.field-error',
+            '.validation-error', '.form-error', '.input-error',
+            '[class*="error"]', '[class*="invalid"]'
+        ]
+        
+        for selector in validation_error_selectors:
+            elements = page.locator(selector)
+            if elements.count() > 0:
+                for i in range(min(elements.count(), 5)):  # Limit to 5 errors
+                    error_text = elements.nth(i).text_content()
+                    if error_text and error_text.strip():
+                        result['form_validation_errors'].append({
+                            'selector': selector,
+                            'text': error_text.strip()[:200]  # Limit text length
+                        })
+                result['has_error_message'] = True
+        
+        # Check for success indicators (lebih comprehensive)
+        success_selectors = [
+            '.success', '.alert-success', '.success-message',
+            '[role="status"]', '.form-success', '.submission-success',
+            '.thank-you', '.confirmation', '[class*="success"]'
+        ]
+        
+        for selector in success_selectors:
+            elements = page.locator(selector)
+            if elements.count() > 0:
+                for i in range(min(elements.count(), 3)):  # Limit to 3 success messages
+                    success_text = elements.nth(i).text_content()
+                    if success_text and success_text.strip():
+                        result['has_success_message'] = True
+                        break
+                if result['has_success_message']:
+                    break
+        
+        # Check for common success indicators in text
+        page_content = page.content()
+        success_indicators = [
+            'thank you', 'success', 'submitted', 'received',
+            'confirmation', 'complete', 'done'
+        ]
+        
+        if any(indicator in page_content.lower() for indicator in success_indicators):
+            result['has_success_message'] = True
+        
+        # Simpan network errors
+        result['network_errors'] = network_errors
+        
+        # Determine overall success
+        if result['has_error_message'] or network_errors:
+            result['success'] = False
+        elif result['has_success_message'] or result['redirected']:
+            result['success'] = True
+        else:
+            # Ambiguous case - check if form is still there (might indicate failure)
+            remaining_forms = page.locator('form').count()
+            if remaining_forms == 0:
+                result['success'] = True  # Form disappeared, likely successful
+            else:
+                result['success'] = False  # Form still there, might have failed
     
     except Exception as e:
         result['errors'].append(f"Form test error: {str(e)}")
