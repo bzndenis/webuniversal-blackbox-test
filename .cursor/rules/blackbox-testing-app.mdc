@@ -1,0 +1,270 @@
+---
+alwaysApply: true
+description: Black-box functional testing application development guidelines
+---
+
+# Black-Box Testing Application Development Rules
+
+## Project Overview
+This project is a Python web application for black-box functional testing of web pages. The complete specifications are documented in [rincian-aplikasi.md](mdc:rincian-aplikasi.md).
+
+## Core Technologies
+- **UI Framework**: Streamlit (Opsi A) or FastAPI (Opsi B)
+- **Automation**: Playwright (Python) - NOT Selenium
+- **Database**: SQLite with SQLModel/SQLAlchemy
+- **Templating**: Jinja2 for HTML reports
+- **Testing**: pytest
+
+## Project Structure
+Follow the structure defined in [rincian-aplikasi.md](mdc:rincian-aplikasi.md):
+```
+app/
+  main.py           # Entry point
+  runners/          # Playwright & crawler logic
+  models/           # Database models & schemas
+  services/         # YAML loader, reporter, heuristics
+  static/           # CSS/JS assets
+  templates/        # Jinja2 templates
+tests/
+  sample_specs/     # YAML test specifications
+artifacts/          # Generated reports & screenshots
+```
+
+## Coding Standards
+
+### Type Hints & Documentation
+- **Always use type hints** for function parameters and return values
+- **Add docstrings** to all functions and classes using Google style:
+  ```python
+  def run_page_smoke(url: str, out_dir: str) -> Dict[str, Any]:
+      """
+      Jalankan smoke test pada satu halaman.
+      
+      Args:
+          url: URL halaman yang akan ditest
+          out_dir: Direktori untuk menyimpan artifacts
+          
+      Returns:
+          Dictionary berisi hasil test
+      """
+  ```
+
+### Error Handling
+- Wrap Playwright operations in try/except blocks
+- Log errors clearly with context
+- Never let exceptions crash the entire test run
+- Continue with next page if one page fails
+
+### Playwright Best Practices
+- Use `page.locator()` instead of `page.query_selector()`
+- Always set timeouts explicitly
+- Use `wait_until="load"` or `wait_until="networkidle"` appropriately
+- Capture screenshots on errors
+- Collect console errors and network failures via event handlers
+
+### Modular Design
+- Keep runners/, models/, services/ separate
+- One responsibility per module
+- Reusable utility functions
+- Configuration via environment variables
+
+## Key Features Implementation
+
+### 1. Crawler (app/runners/crawl.py)
+- Same-origin enforcement by default
+- Respect max_depth and max_pages limits
+- Support include/exclude regex patterns
+- Avoid infinite loops with visited set
+- Handle errors gracefully
+
+### 2. Playwright Runner (app/runners/playwright_runner.py)
+- Implement `run_page_smoke()` for basic checks
+- Implement `run_yaml_scenario()` for custom tests
+- Collect console errors via `page.on("console")`
+- Collect network failures via `page.on("requestfailed")`
+- Take full-page screenshots
+- Measure load time accurately
+
+### 3. YAML Scenario Support (app/services/yaml_loader.py)
+- Support actions: goto, click, fill, press, screenshot
+- Support assertions: expect_title, expect_text, expect_status
+- Validate YAML schema with Pydantic
+- See example in [rincian-aplikasi.md](mdc:rincian-aplikasi.md)
+
+### 4. Reporting (app/services/reporter.py)
+- Generate HTML reports with color-coded pass/fail
+- Support CSV and JSON export
+- Include screenshots in reports
+- Show summary metrics: total pages, pass rate, errors
+- Store artifacts in `artifacts/<run_id>/`
+
+### 5. Form Heuristics (app/services/heuristics.py)
+- Auto-detect forms on page
+- Fill with dummy data based on input type
+- Submit in sandbox mode
+- Verify response is not 4xx/5xx
+- Look for success indicators
+
+## Testing Requirements
+
+### Unit Tests
+- Test crawler with mock responses
+- Test YAML loader with sample specs
+- Test report generation with mock data
+- Use pytest fixtures for temporary directories
+
+### Integration Tests
+- Test against https://example.com
+- Verify screenshot generation
+- Verify report artifacts created
+- Test error handling scenarios
+
+## Configuration
+
+### Environment Variables (.env)
+- `HEADLESS`: true/false for browser visibility
+- `TIMEOUT`: default timeout in milliseconds
+- `MAX_CONCURRENCY`: number of parallel tests (start with 1)
+- `USER_AGENT`: custom user agent string
+- `DATABASE_URL`: SQLite database path
+
+## UI Guidelines (Streamlit)
+
+### Layout
+- **Sidebar**: All input controls
+- **Main area**: Progress, results, metrics
+- **Use st.metric()** for key numbers (total pages, pass rate, errors)
+- **Use st.dataframe()** for results table
+- **Progress bar** during test execution
+- **Download buttons** for report exports
+
+### User Experience
+- Clear error messages
+- Real-time progress updates
+- Ability to cancel running tests
+- Link to detailed artifacts
+- Export options: HTML, CSV, JSON
+
+## Docker Support (Opsi B)
+
+### Dockerfile Requirements
+- Use Python 3.10+ slim image
+- Install Playwright with `--with-deps`
+- Copy requirements and install dependencies
+- Expose port 8501 (Streamlit) or 8000 (FastAPI)
+- Use proper WORKDIR
+
+### docker-compose.yml
+- Map artifacts volume for persistence
+- Set environment variables
+- Include Redis service if using Celery
+
+## Common Pitfalls to Avoid
+
+1. **Don't use Selenium** - Use Playwright as specified
+2. **Don't skip error handling** - Always wrap browser operations
+3. **Don't ignore timeouts** - Set explicit timeouts
+4. **Don't create files without cleanup** - Clean temp files
+5. **Don't hardcode paths** - Use os.path.join() and environment variables
+6. **Don't forget screenshots** - Capture evidence for debugging
+7. **Don't skip type hints** - Always add type annotations
+
+## Performance Considerations
+
+- Start with serial execution (MAX_CONCURRENCY=1)
+- Add concurrency later with proper locking
+- Use headless mode in production
+- Implement request caching for crawler
+- Limit screenshot size for large pages
+- Set reasonable timeouts (10-30 seconds)
+
+## CI/CD Integration
+
+### GitHub Actions
+- Install Python 3.10+
+- Install Playwright browsers: `playwright install --with-deps chromium`
+- Run pytest tests
+- Run sample black-box test against example.com
+- Upload artifacts on failure
+
+### Best Practices
+- Run in headless mode
+- Use environment variables for configuration
+- Cache Playwright browsers
+- Upload test reports as artifacts
+- Fail pipeline on critical errors only
+
+## Authentication Support (Future)
+
+When implementing auth:
+- Add YAML schema for credentials
+- Support username/password login
+- Store session/cookies
+- Detect successful login
+- Handle logout
+- Never log credentials
+
+## Reporting Standards
+
+### HTML Reports Must Include
+- Run ID and timestamp
+- Summary metrics with color coding
+- Per-page results table
+- Links to screenshots
+- Console error details
+- Network failure details
+- Assertions passed/failed count
+
+### CSV Reports Must Include
+- All columns from summary table
+- One row per page tested
+- Numeric values for sorting
+
+### JSON Reports Must Include
+- Complete structured data
+- All raw evidence
+- Machine-readable format
+
+## Documentation Requirements
+
+### README.md Must Cover
+- Quick start guide
+- Installation instructions (local & Docker)
+- Usage examples
+- YAML specification format
+- Configuration options
+- Limitations (CAPTCHA, auth, SPA)
+- Contributing guidelines
+
+### Code Comments
+- Complex logic explanation
+- TODOs for future enhancements
+- References to documentation
+- Assumptions and constraints
+
+## Reference
+
+For complete specifications, examples, and implementation details, always refer to [rincian-aplikasi.md](mdc:rincian-aplikasi.md).
+
+## Development Workflow
+
+1. **Start with Opsi A (Streamlit)** for rapid prototyping
+2. **Implement core features** in order: crawler → runner → reporter → UI
+3. **Add YAML support** after basic functionality works
+4. **Add database persistence** for run history
+5. **Implement form heuristics** for advanced testing
+6. **Migrate to Opsi B (FastAPI)** when scalability needed
+
+## Quality Checklist
+
+Before committing code, ensure:
+- [ ] Type hints on all functions
+- [ ] Docstrings on all public functions
+- [ ] Error handling in place
+- [ ] Tests pass (pytest)
+- [ ] No hardcoded values
+- [ ] Environment variables documented
+- [ ] Screenshots captured
+- [ ] Reports generated correctly
+- [ ] No linter errors
+- [ ] README updated if needed
