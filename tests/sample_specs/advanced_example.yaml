@@ -1,0 +1,44 @@
+# Advanced YAML Test Specification
+# Demonstrates more complex scenarios with form filling and assertions
+
+base_url: "https://example.com"
+
+scenarios:
+  - name: "Complete User Journey"
+    steps:
+      # Navigate to homepage
+      - action: "goto"
+        url: "/"
+      
+      # Verify page loaded correctly
+      - action: "expect_title"
+        contains: "Example"
+      
+      - action: "expect_status"
+        in: [200, 301, 302]
+      
+      # Take initial screenshot
+      - action: "screenshot"
+        path: "step1_homepage.png"
+      
+      # Wait for dynamic content
+      - action: "wait"
+        ms: 2000
+      
+      # Verify specific text exists
+      - action: "expect_text"
+        selector: "body"
+        contains: "domain"
+      
+      # Take final screenshot
+      - action: "screenshot"
+        path: "step2_verified.png"
+  
+  - name: "Error Handling Test"
+    steps:
+      - action: "goto"
+        url: "/nonexistent-page"
+      
+      - action: "screenshot"
+        path: "404_page.png"
+

@@ -3,6 +3,8 @@
 ## Tujuan
 Bangun aplikasi web Python untuk black-box functional testing per halaman situs apa pun. Aplikasi melakukan crawl terbatas, otomatis menjalankan skenario umum (load, klik, submit form, validasi teks/HTTP), mendeteksi error (HTTP 4xx/5xx, JS console error, network fail), dan menghasilkan laporan per halaman + ringkasan pass/fail. Dukungan test spesifik via berkas YAML.
 
+**FITUR UTAMA (NEW):** Deep Component Testing - Otomatis mendeteksi dan test SEMUA komponen di halaman (button, image, link, form) tanpa konfigurasi manual!
+
 ---
 
 ## Persyaratan Teknis
@@ -31,6 +33,86 @@ Bangun aplikasi web Python untuk black-box functional testing per halaman situs 
 
 ## Fitur Wajib
 
+### 0. Deep Component Testing (FITUR UTAMA - NEW!) 🔍
+
+**Automatic component detection and testing untuk setiap halaman:**
+
+#### Button Testing
+- Auto-detect semua button: `<button>`, `input[type="button"]`, `input[type="submit"]`, `[role="button"]`
+- Test untuk setiap button:
+  - Apakah clickable? (enabled)
+  - Apakah disabled?
+  - Apakah visible atau hidden?
+  - Text/label button
+- Output: Total buttons, clickable count, disabled count, hidden count, detail per button
+
+#### Image Validation
+- Auto-detect semua `<img>` tags
+- Test untuk setiap image:
+  - Apakah berhasil load? (naturalWidth > 0)
+  - Apakah broken? (naturalWidth == 0)
+  - Ada alt text? (accessibility)
+  - Ukuran image (width x height)
+- Output: Total images, loaded count, broken count, images without alt, detail per image
+
+#### Link Checking
+- Auto-detect semua `<a href>` tags
+- Test untuk setiap link:
+  - Link valid atau empty (#)?
+  - Link internal atau external?
+  - Href dan anchor text
+  - Visibility status
+- Output: Total links, valid count, empty count, internal/external count, detail per link
+
+#### Form Analysis
+- Auto-detect semua `<form>` tags
+- Analyze untuk setiap form:
+  - Ada action URL?
+  - Method (GET/POST)?
+  - Ada submit button?
+  - Detail semua input fields (name, type)
+  - Form complete atau incomplete?
+- Output: Total forms, forms with action, forms with submit, detail per form dengan inputs
+
+#### Interactive Elements
+- Auto-detect: checkboxes, radio buttons, selects, textareas
+- Count dan status untuk masing-masing tipe
+- Output: Jumlah setiap element, status checked/unchecked
+
+**Implementasi:**
+- Module: `app/runners/component_tester.py`
+- Functions:
+  - `test_all_buttons(page)` → Dict
+  - `test_all_images(page)` → Dict
+  - `test_all_links(page)` → Dict
+  - `test_all_forms(page)` → Dict
+  - `test_interactive_elements(page)` → Dict
+  - `run_comprehensive_component_test(page)` → Dict (main function)
+- Output: `component_test.json` di folder artifacts
+- UI: Expandable section dengan tabs untuk setiap component type
+
+**Cara Kerja:**
+1. User input URL (contoh: google.com)
+2. User aktifkan "Deep Component Test" (default ON)
+3. Aplikasi otomatis:
+   - Buka halaman dengan Playwright
+   - Jalankan semua component tests
+   - Collect detailed results
+   - Display di UI dengan tabs
+   - Save ke component_test.json
+
+**Use Case:**
+```
+Input: https://google.com
+Deep Component Test: ON
+
+Output:
+✅ Buttons: 2/2 working (Google Search, I'm Feeling Lucky)
+✅ Images: 1/1 loaded (Google logo)
+✅ Links: 15/15 valid
+✅ Forms: 1/1 complete (search form)
+```
+
 ### 1. Input Target
 
 Field yang diperlukan:
@@ -40,6 +122,7 @@ Field yang diperlukan:
 - Max pages
 - Include/exclude patterns (regex)
 - Opsi "manual pages list"
+- **NEW:** Toggle "Deep Component Test" (default: ON)
 
 ### 2. Crawler Ringan
 
@@ -215,6 +298,95 @@ scenarios:
 
 ## Contoh Kode Inti
 
+### Component Tester (NEW!)
+
+```python
+# app/runners/component_tester.py
+from playwright.sync_api import Page
+from typing import Dict, Any, List
+
+def test_all_buttons(page: Page) -> Dict[str, Any]:
+    """Test semua button di halaman."""
+    result = {
+        "total_buttons": 0,
+        "clickable_buttons": 0,
+        "disabled_buttons": 0,
+        "hidden_buttons": 0,
+        "buttons_tested": []
+    }
+    
+    button_selectors = ['button', 'input[type="button"]', 'input[type="submit"]', '[role="button"]']
+    
+    for selector in button_selectors:
+        buttons = page.locator(selector)
+        for i in range(buttons.count()):
+            button = buttons.nth(i)
+            result["total_buttons"] += 1
+            
+            is_visible = button.is_visible()
+            is_disabled = button.is_disabled()
+            
+            if not is_visible:
+                result["hidden_buttons"] += 1
+            elif is_disabled:
+                result["disabled_buttons"] += 1
+            else:
+                result["clickable_buttons"] += 1
+            
+            result["buttons_tested"].append({
+                "text": button.text_content() or "N/A",
+                "status": "clickable" if (is_visible and not is_disabled) else "disabled" if is_disabled else "hidden",
+                "visible": is_visible,
+                "enabled": not is_disabled
+            })
+    
+    return result
+
+def test_all_images(page: Page) -> Dict[str, Any]:
+    """Test semua image di halaman."""
+    result = {
+        "total_images": 0,
+        "loaded_images": 0,
+        "broken_images": 0,
+        "images_tested": []
+    }
+    
+    images = page.locator('img')
+    result["total_images"] = images.count()
+    
+    for i in range(images.count()):
+        img = images.nth(i)
+        natural_width = img.evaluate('img => img.naturalWidth')
+        is_loaded = natural_width > 0
+        
+        if is_loaded:
+            result["loaded_images"] += 1
+        else:
+            result["broken_images"] += 1
+        
+        result["images_tested"].append({
+            "src": img.get_attribute('src') or 'N/A',
+            "alt": img.get_attribute('alt') or 'N/A',
+            "width": natural_width,
+            "status": "loaded" if is_loaded else "broken"
+        })
+    
+    return result
+
+def run_comprehensive_component_test(page: Page) -> Dict[str, Any]:
+    """Jalankan comprehensive test untuk semua komponen."""
+    return {
+        "buttons": test_all_buttons(page),
+        "images": test_all_images(page),
+        "links": test_all_links(page),
+        "forms": test_all_forms(page),
+        "interactive": test_interactive_elements(page),
+        "summary": {
+            # ... summary metrics
+        }
+    }
+```
+
 ### Playwright Runner
 
 ```python
@@ -224,10 +396,16 @@ from typing import Dict, Any, List, Optional
 import time
 import json
 import os
+from .component_tester import run_comprehensive_component_test
 
 DEFAULT_TIMEOUT = 10000
 
-def run_page_smoke(url: str, out_dir: str, timeout: int = DEFAULT_TIMEOUT) -> Dict[str, Any]:
+def run_page_smoke(
+    url: str, 
+    out_dir: str, 
+    timeout: int = DEFAULT_TIMEOUT,
+    deep_component_test: bool = False
+) -> Dict[str, Any]:
     """
     Jalankan smoke test pada satu halaman.
     
@@ -503,10 +681,19 @@ def crawl_site(
 ## UI (Opsi A – Streamlit)
 
 ### Layout
-- **Sidebar**: Input untuk Base URL, Max Depth/Pages, Include/Exclude regex, tombol Run
+- **Sidebar**: 
+  - Test mode selection (Crawler/YAML/Single Page)
+  - Input untuk Base URL, Max Depth/Pages, Include/Exclude regex
+  - **NEW:** "🔍 Deep Component Test" checkbox (default ON)
+  - Test options: Headless, Timeout, Form Testing
+  - Tombol Run
 - **Main Area**: 
   - Progress bar & log area
   - Tabel hasil dengan st.metric untuk angka ringkas
+  - **NEW:** Detailed Component Analysis section
+    - Expandable per page
+    - Tabs: Buttons, Images, Links, Forms
+    - Detail tables untuk setiap component type
   - Link ke detail halaman (log + screenshot)
   - Tombol Export
 
@@ -527,11 +714,20 @@ st.title("🔍 Black-Box Functional Testing")
 # Sidebar inputs
 with st.sidebar:
     st.header("Configuration")
+    
+    # Test mode
+    test_mode = st.radio("Test Mode", ["Crawler Mode", "YAML Scenario", "Single Page"])
+    
     base_url = st.text_input("Base URL", "https://example.com")
     max_depth = st.number_input("Max Depth", 1, 5, 2)
     max_pages = st.number_input("Max Pages", 1, 100, 10)
-    include_pattern = st.text_input("Include Pattern (regex)", "")
-    exclude_pattern = st.text_input("Exclude Pattern (regex)", "")
+    
+    # Test options
+    st.subheader("Test Options")
+    deep_component_test = st.checkbox("🔍 Deep Component Test", value=True, 
+                                      help="Test semua button, form, image, dan link di halaman")
+    headless = st.checkbox("Headless Mode", value=True)
+    timeout = st.slider("Timeout (seconds)", 5, 60, 10)
     
     run_button = st.button("🚀 Run Test", type="primary")
 
@@ -559,7 +755,12 @@ if run_button:
     for idx, url in enumerate(urls):
         st.write(f"Testing: {url}")
         page_dir = os.path.join(artifacts_dir, f"page_{idx}")
-        result = run_page_smoke(url, page_dir)
+        result = run_page_smoke(
+            url, 
+            page_dir,
+            timeout=timeout * 1000,
+            deep_component_test=deep_component_test  # NEW!
+        )
         results.append(result)
         progress_bar.progress((idx + 1) / len(urls))
     
@@ -580,6 +781,38 @@ if run_button:
     
     # Results table
     st.dataframe(results)
+    
+    # Display Component Test Results (if enabled) - NEW!
+    if deep_component_test and results and results[0].get('component_tests'):
+        st.subheader("🔍 Detailed Component Analysis")
+        
+        for idx, r in enumerate(results):
+            if 'component_tests' in r:
+                comp = r['component_tests']
+                summary = comp.get('summary', {})
+                
+                with st.expander(f"📄 {r['url']} - Component Details"):
+                    # Summary metrics
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("Buttons", f"{summary.get('working_buttons', 0)}/{summary.get('total_buttons', 0)}")
+                    col2.metric("Images", f"{summary.get('loaded_images', 0)}/{summary.get('total_images', 0)}")
+                    col3.metric("Links", summary.get('valid_links', 0))
+                    col4.metric("Forms", f"{summary.get('complete_forms', 0)}/{summary.get('total_forms', 0)}")
+                    
+                    # Detailed tabs
+                    tab_btn, tab_img, tab_link, tab_form = st.tabs(["Buttons", "Images", "Links", "Forms"])
+                    
+                    with tab_btn:
+                        buttons = comp.get('buttons', {})
+                        if buttons.get('buttons_tested'):
+                            btn_data = [{
+                                "Text": b.get('text', 'N/A'),
+                                "Status": b.get('status', 'N/A'),
+                                "Enabled": b.get('enabled', False)
+                            } for b in buttons['buttons_tested'][:20]]
+                            st.dataframe(btn_data)
+                    
+                    # ... tabs lainnya
     
     # Generate report
     report_path = os.path.join(artifacts_dir, "report.html")
@@ -1020,14 +1253,70 @@ API_KEY=your-secret-api-key-here
 
 ---
 
+## Fitur Baru: Deep Component Testing
+
+### Use Case Utama
+**Problem:** User ingin cek halaman web (contoh: google.com) apakah semua komponen berfungsi dengan baik - button bisa diklik, image tidak broken, form complete, dll.
+
+**Solution:** Deep Component Testing - Otomatis detect dan test SEMUA komponen tanpa konfigurasi manual!
+
+### Contoh Penggunaan
+
+#### Via UI:
+```
+1. Single Page mode
+2. URL: https://google.com
+3. Deep Component Test: ✅ (default ON)
+4. Run Test
+5. Hasil otomatis:
+   ✅ Buttons: 2/2 working
+   ✅ Images: 1/1 loaded
+   ✅ Links: 15/15 valid
+   ✅ Forms: 1/1 complete
+```
+
+#### Via Script:
+```python
+# examples/test_google_components.py
+from app.runners.playwright_runner import run_page_smoke
+
+result = run_page_smoke(
+    url="https://google.com",
+    out_dir="output",
+    deep_component_test=True
+)
+
+comp = result['component_tests']
+print(f"Buttons: {comp['summary']['working_buttons']}/{comp['summary']['total_buttons']}")
+print(f"Images: {comp['summary']['loaded_images']}/{comp['summary']['total_images']}")
+print(f"Broken images: {comp['summary']['broken_images']}")
+```
+
+### Output Files
+
+Setiap run menghasilkan:
+1. `component_test.json` - Detail semua komponen
+2. `screenshot.png` - Screenshot halaman
+3. `result.json` - Overall result
+4. `report.html` - Interactive report
+
+### Dokumentasi
+
+- **COMPONENT_TESTING_GUIDE.md**: Panduan lengkap component testing
+- **examples/README.md**: Contoh-contoh penggunaan
+- **README.md**: Dokumentasi utama (updated dengan fitur ini)
+
 ## Kesimpulan
 
 Aplikasi ini dirancang untuk:
 1. **Rapid testing**: Quickly test any website without writing code
-2. **Automated QA**: Catch errors before they reach production
-3. **CI/CD Integration**: Easy to integrate into deployment pipelines
-4. **Flexibility**: Support both automated and custom YAML scenarios
-5. **Comprehensive reporting**: Clear visibility of issues
+2. **Deep Component Analysis**: Auto-detect dan test semua komponen di halaman (NEW!)
+3. **Automated QA**: Catch errors before they reach production
+4. **CI/CD Integration**: Easy to integrate into deployment pipelines
+5. **Flexibility**: Support both automated and custom YAML scenarios
+6. **Comprehensive reporting**: Clear visibility of issues dengan detail per komponen
+
+**Fitur Unggulan:** Deep Component Testing memungkinkan user langsung test google.com atau website apa pun dan mendapat laporan lengkap tentang semua button, image, link, dan form tanpa perlu konfigurasi!
 
 Mulai dengan **Opsi A (Streamlit)** untuk development cepat, kemudian migrate ke **Opsi B (FastAPI)** saat butuh scalability dan multi-user support.
 

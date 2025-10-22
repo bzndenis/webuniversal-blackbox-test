@@ -19,15 +19,20 @@ This project is a Python web application for black-box functional testing of web
 Follow the structure defined in [rincian-aplikasi.md](mdc:rincian-aplikasi.md):
 ```
 app/
-  main.py           # Entry point
-  runners/          # Playwright & crawler logic
-  models/           # Database models & schemas
-  services/         # YAML loader, reporter, heuristics
-  static/           # CSS/JS assets
-  templates/        # Jinja2 templates
+  main.py                     # Entry point (Streamlit UI)
+  runners/
+    crawl.py                  # Web crawler
+    playwright_runner.py      # Main test runner
+    component_tester.py       # Deep component testing (NEW!)
+  models/                     # Database models & schemas
+  services/                   # YAML loader, reporter, heuristics
+  static/                     # CSS/JS assets
+  templates/                  # Jinja2 templates
 tests/
-  sample_specs/     # YAML test specifications
-artifacts/          # Generated reports & screenshots
+  sample_specs/               # YAML test specifications
+artifacts/                    # Generated reports & screenshots
+examples/                     # Example scripts (NEW!)
+  test_google_components.py   # Example component testing
 ```
 
 ## Coding Standards
@@ -70,35 +75,53 @@ artifacts/          # Generated reports & screenshots
 
 ## Key Features Implementation
 
-### 1. Crawler (app/runners/crawl.py)
+### 1. Deep Component Testing (app/runners/component_tester.py) ⭐ NEW!
+**Primary feature for comprehensive page analysis**
+- `test_all_buttons()`: Auto-detect all buttons, check clickable/disabled/hidden status
+- `test_all_images()`: Validate all images, detect broken images, check alt text
+- `test_all_links()`: Test all links, categorize internal/external/empty
+- `test_all_forms()`: Analyze forms, check completeness (action + submit button)
+- `test_interactive_elements()`: Check checkboxes, radios, selects, textareas
+- `run_comprehensive_component_test()`: Main function that runs all component tests
+- Returns detailed results for each component type
+- Generates component_test.json with full analysis
+
+**Use Case:**
+When user provides URL (e.g., google.com), automatically test ALL components on the page without manual configuration.
+
+### 2. Crawler (app/runners/crawl.py)
 - Same-origin enforcement by default
 - Respect max_depth and max_pages limits
 - Support include/exclude regex patterns
 - Avoid infinite loops with visited set
 - Handle errors gracefully
 
-### 2. Playwright Runner (app/runners/playwright_runner.py)
+### 3. Playwright Runner (app/runners/playwright_runner.py)
 - Implement `run_page_smoke()` for basic checks
+  - NEW: Accepts `deep_component_test` parameter to enable component analysis
+  - Calls `run_comprehensive_component_test()` when enabled
+  - Saves component results to `component_test.json`
 - Implement `run_yaml_scenario()` for custom tests
 - Collect console errors via `page.on("console")`
 - Collect network failures via `page.on("requestfailed")`
 - Take full-page screenshots
 - Measure load time accurately
 
-### 3. YAML Scenario Support (app/services/yaml_loader.py)
+### 4. YAML Scenario Support (app/services/yaml_loader.py)
 - Support actions: goto, click, fill, press, screenshot
 - Support assertions: expect_title, expect_text, expect_status
 - Validate YAML schema with Pydantic
 - See example in [rincian-aplikasi.md](mdc:rincian-aplikasi.md)
 
-### 4. Reporting (app/services/reporter.py)
+### 5. Reporting (app/services/reporter.py)
 - Generate HTML reports with color-coded pass/fail
 - Support CSV and JSON export
 - Include screenshots in reports
 - Show summary metrics: total pages, pass rate, errors
 - Store artifacts in `artifacts/<run_id>/`
+- NEW: Component test results included in reports
 
-### 5. Form Heuristics (app/services/heuristics.py)
+### 6. Form Heuristics (app/services/heuristics.py)
 - Auto-detect forms on page
 - Fill with dummy data based on input type
 - Submit in sandbox mode
@@ -132,11 +155,19 @@ artifacts/          # Generated reports & screenshots
 
 ### Layout
 - **Sidebar**: All input controls
+  - Test mode selection (Crawler/YAML/Single Page)
+  - URL input
+  - NEW: "🔍 Deep Component Test" checkbox (default ON)
+  - Test options (headless, timeout, etc.)
 - **Main area**: Progress, results, metrics
 - **Use st.metric()** for key numbers (total pages, pass rate, errors)
 - **Use st.dataframe()** for results table
 - **Progress bar** during test execution
 - **Download buttons** for report exports
+- **NEW: Component Analysis Section**
+  - Expandable detail per page
+  - Tabs for Buttons, Images, Links, Forms
+  - Per-element details in tables
 
 ### User Experience
 - Clear error messages
@@ -144,6 +175,8 @@ artifacts/          # Generated reports & screenshots
 - Ability to cancel running tests
 - Link to detailed artifacts
 - Export options: HTML, CSV, JSON
+- NEW: Visual component test results with color-coded status
+- NEW: Detailed tables for each component type
 
 ## Docker Support (Opsi B)
 
@@ -255,6 +288,55 @@ For complete specifications, examples, and implementation details, always refer 
 5. **Implement form heuristics** for advanced testing
 6. **Migrate to Opsi B (FastAPI)** when scalability needed
 
+## Component Testing Guidelines
+
+### When to Use Deep Component Testing
+- **Always ON by default** for Single Page mode
+- Recommended for: Homepage testing, landing pages, form pages
+- Optional for: Crawler mode with many pages (slower)
+
+### Component Test Output Structure
+```python
+{
+    "buttons": {
+        "total_buttons": int,
+        "clickable_buttons": int,
+        "disabled_buttons": int,
+        "hidden_buttons": int,
+        "buttons_tested": [
+            {"text": str, "status": str, "visible": bool, "enabled": bool}
+        ]
+    },
+    "images": {
+        "total_images": int,
+        "loaded_images": int,
+        "broken_images": int,
+        "images_without_alt": int,
+        "images_tested": [
+            {"src": str, "alt": str, "width": int, "height": int, "status": str}
+        ]
+    },
+    "links": {...},
+    "forms": {...},
+    "interactive": {...},
+    "summary": {
+        "total_buttons": int,
+        "working_buttons": int,
+        "total_images": int,
+        "loaded_images": int,
+        "broken_images": int,
+        # ... more summary fields
+    }
+}
+```
+
+### Component Test Best Practices
+- Always test for broken images (status == "broken")
+- Check disabled buttons (should they be disabled?)
+- Validate empty links (href == "#")
+- Ensure forms have action and submit button
+- Check image alt text for accessibility
+
 ## Quality Checklist
 
 Before committing code, ensure:
@@ -268,3 +350,5 @@ Before committing code, ensure:
 - [ ] Reports generated correctly
 - [ ] No linter errors
 - [ ] README updated if needed
+- [ ] NEW: Component tests work for various page types
+- [ ] NEW: Component results properly displayed in UI

@@ -1,0 +1,35 @@
+# Sample YAML Test Specification
+# This file demonstrates the YAML scenario format for custom black-box tests
+
+base_url: "https://example.com"
+
+scenarios:
+  - name: "Homepage Basic Check"
+    steps:
+      - action: "goto"
+        url: "/"
+      
+      - action: "expect_title"
+        contains: "Example"
+      
+      - action: "expect_text"
+        selector: "h1"
+        contains: "Example Domain"
+      
+      - action: "screenshot"
+        path: "homepage.png"
+  
+  - name: "Link Navigation Test"
+    steps:
+      - action: "goto"
+        url: "/"
+      
+      - action: "click"
+        selector: "a"
+      
+      - action: "wait"
+        ms: 1000
+      
+      - action: "screenshot"
+        path: "after_click.png"
+
