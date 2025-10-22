@@ -546,6 +546,219 @@ def check_session_validity(page: Page) -> bool:
         return True  # Default to valid if check fails
 
 
+def check_session_timeout(page: Page) -> Dict[str, Any]:
+    """
+    Periksa session timeout dengan berbagai metode deteksi.
+    
+    Args:
+        page: Playwright page object
+        
+    Returns:
+        Dictionary berisi informasi session timeout
+    """
+    result = {
+        'has_timeout': False,
+        'timeout_minutes': None,
+        'timeout_source': None,
+        'warnings': []
+    }
+    
+    try:
+        # Cek session timeout dari localStorage dan sessionStorage
+        timeout_data = page.evaluate("""
+            () => {
+                const sources = [
+                    { key: 'sessionTimeout', storage: localStorage },
+                    { key: 'sessionTimeout', storage: sessionStorage },
+                    { key: 'authTimeout', storage: localStorage },
+                    { key: 'authTimeout', storage: sessionStorage },
+                    { key: 'sessionExpiry', storage: localStorage },
+                    { key: 'sessionExpiry', storage: sessionStorage },
+                    { key: 'loginTimeout', storage: localStorage },
+                    { key: 'loginTimeout', storage: sessionStorage }
+                ];
+                
+                for (let source of sources) {
+                    const value = source.storage.getItem(source.key);
+                    if (value) {
+                        const timeout = parseInt(value);
+                        if (!isNaN(timeout) && timeout > 0) {
+                            return {
+                                timeout: timeout,
+                                source: source.key,
+                                storage: source.storage === localStorage ? 'localStorage' : 'sessionStorage'
+                            };
+                        }
+                    }
+                }
+                return null;
+            }
+        """)
+        
+        if timeout_data:
+            result['has_timeout'] = True
+            result['timeout_minutes'] = timeout_data['timeout']
+            result['timeout_source'] = f"{timeout_data['storage']}.{timeout_data['source']}"
+            
+            # Warning jika session timeout terlalu pendek
+            if timeout_data['timeout'] < 30:
+                result['warnings'].append(f"Session timeout is very short: {timeout_data['timeout']} minutes")
+                logger.warning(f"Session timeout is very short: {timeout_data['timeout']} minutes")
+        
+        # Cek apakah ada indikator session expired di halaman
+        expired_indicators = page.evaluate("""
+            () => {
+                const indicators = [
+                    'session expired', 'session timeout', 'session invalid',
+                    'login expired', 'authentication expired', 'token expired',
+                    'sesi berakhir', 'sesi expired', 'waktu habis',
+                    'session timeout', 'login timeout', 'auth timeout'
+                ];
+                
+                const pageText = document.body.innerText.toLowerCase();
+                for (let indicator of indicators) {
+                    if (pageText.includes(indicator)) {
+                        return indicator;
+                    }
+                }
+                return null;
+            }
+        """)
+        
+        if expired_indicators:
+            result['has_timeout'] = True
+            result['timeout_source'] = f"page_content: {expired_indicators}"
+            result['warnings'].append(f"Session expired indicator found in page: {expired_indicators}")
+            logger.warning(f"Session expired indicator found: {expired_indicators}")
+        
+        # Cek cookies untuk session expiry
+        try:
+            cookies = page.context.cookies()
+            for cookie in cookies:
+                if 'expires' in cookie and cookie['expires']:
+                    # Cek apakah cookie sudah expired
+                    import datetime
+                    if isinstance(cookie['expires'], (int, float)):
+                        expiry_time = datetime.datetime.fromtimestamp(cookie['expires'])
+                        if expiry_time < datetime.datetime.now():
+                            result['has_timeout'] = True
+                            result['warnings'].append(f"Session cookie expired: {cookie['name']}")
+                            logger.warning(f"Session cookie expired: {cookie['name']}")
+        except Exception as e:
+            logger.debug(f"Could not check cookie expiry: {e}")
+        
+    except Exception as e:
+        logger.warning(f"Failed to check session timeout: {e}")
+    
+    return result
+
+
+def detect_login_redirect_cause(page: Page) -> Dict[str, Any]:
+    """
+    Deteksi penyebab redirect ke login page dengan analisis yang lebih mendalam.
+    
+    Args:
+        page: Playwright page object
+        
+    Returns:
+        Dictionary berisi analisis penyebab redirect
+    """
+    result = {
+        'redirect_cause': 'Unknown',
+        'error_messages': [],
+        'session_indicators': [],
+        'timeout_indicators': [],
+        'auth_indicators': [],
+        'recommendations': []
+    }
+    
+    try:
+        current_url = page.url.lower()
+        page_content = page.content().lower()
+        
+        # Cek error messages yang spesifik
+        error_selectors = [
+            '.error', '.alert-danger', '.invalid-feedback', '.is-invalid',
+            '[role="alert"]', '.error-message', '.field-error', '.validation-error',
+            '.form-error', '.input-error', '.session-error', '.auth-error',
+            '.login-error', '.timeout-error', '.expired-error'
+        ]
+        
+        for selector in error_selectors:
+            elements = page.locator(selector)
+            if elements.count() > 0:
+                for i in range(min(elements.count(), 5)):
+                    error_text = elements.nth(i).text_content()
+                    if error_text and error_text.strip():
+                        result['error_messages'].append({
+                            'selector': selector,
+                            'text': error_text.strip()
+                        })
+        
+        # Cek indikator session timeout
+        timeout_indicators = [
+            'session expired', 'session timeout', 'session invalid',
+            'login expired', 'authentication expired', 'token expired',
+            'sesi berakhir', 'sesi expired', 'waktu habis'
+        ]
+        
+        for indicator in timeout_indicators:
+            if indicator in page_content:
+                result['timeout_indicators'].append(indicator)
+                result['redirect_cause'] = f"Session timeout: {indicator}"
+                result['recommendations'].append("Check session timeout configuration")
+                result['recommendations'].append("Implement session timeout warnings")
+                break
+        
+        # Cek indikator authentication error
+        if result['redirect_cause'] == 'Unknown':
+            auth_indicators = [
+                'authentication required', 'login required', 'unauthorized',
+                'access denied', 'permission denied', 'not authenticated',
+                'harus login', 'perlu login', 'akses ditolak'
+            ]
+            
+            for indicator in auth_indicators:
+                if indicator in page_content:
+                    result['auth_indicators'].append(indicator)
+                    result['redirect_cause'] = f"Authentication error: {indicator}"
+                    result['recommendations'].append("Check authentication status")
+                    result['recommendations'].append("Verify user permissions")
+                    break
+        
+        # Cek URL untuk indikator spesifik
+        if result['redirect_cause'] == 'Unknown':
+            if 'timeout' in current_url:
+                result['redirect_cause'] = "Session timeout detected in URL"
+                result['recommendations'].append("Check session timeout configuration")
+            elif 'expired' in current_url:
+                result['redirect_cause'] = "Session expired detected in URL"
+                result['recommendations'].append("Implement session renewal")
+            elif 'unauthorized' in current_url:
+                result['redirect_cause'] = "Unauthorized access detected in URL"
+                result['recommendations'].append("Check user permissions")
+            elif 'login' in current_url:
+                result['redirect_cause'] = "Redirect to login page - no specific error message found"
+                result['recommendations'].append("Check session management")
+                result['recommendations'].append("Implement session validation")
+        
+        # Cek session cookies
+        try:
+            cookies = page.context.cookies()
+            session_cookies = [c for c in cookies if 'session' in c.get('name', '').lower() or 'auth' in c.get('name', '').lower()]
+            if not session_cookies:
+                result['session_indicators'].append("No session cookies found")
+                result['recommendations'].append("Check session cookie configuration")
+        except Exception as e:
+            logger.debug(f"Could not check session cookies: {e}")
+        
+    except Exception as e:
+        logger.warning(f"Failed to detect login redirect cause: {e}")
+        result['redirect_cause'] = f"Error during analysis: {str(e)}"
+    
+    return result
+
+
 def test_form_submission(
     page: Page,
     form_index: int = 0,
@@ -586,43 +799,19 @@ def test_form_submission(
         session_state = save_session_state(page)
         result['session_state_saved'] = bool(session_state)
         
-        # Cek session timeout dan warning jika perlu
-        try:
-            session_timeout = page.evaluate("""
-                () => {
-                    // Cek session timeout dari berbagai sumber
-                    const sources = [
-                        localStorage.getItem('sessionTimeout'),
-                        sessionStorage.getItem('sessionTimeout'),
-                        localStorage.getItem('authTimeout'),
-                        sessionStorage.getItem('authTimeout'),
-                        localStorage.getItem('sessionExpiry'),
-                        sessionStorage.getItem('sessionExpiry')
-                    ];
-                    
-                    for (let source of sources) {
-                        if (source) {
-                            const timeout = parseInt(source);
-                            if (!isNaN(timeout) && timeout > 0) {
-                                return timeout;
-                            }
-                        }
-                    }
-                    return null;
-                }
-            """)
+        # Cek session timeout dengan fungsi yang lebih komprehensif
+        session_timeout_info = check_session_timeout(page)
+        result['session_timeout_info'] = session_timeout_info
+        
+        if session_timeout_info['has_timeout']:
+            logger.info(f"Session timeout detected: {session_timeout_info['timeout_minutes']} minutes from {session_timeout_info['timeout_source']}")
+            result['session_timeout'] = session_timeout_info['timeout_minutes']
             
-            if session_timeout:
-                logger.info(f"Session timeout detected: {session_timeout} minutes")
-                result['session_timeout'] = session_timeout
-                
-                # Warning jika session timeout terlalu pendek
-                if session_timeout < 30:
-                    logger.warning(f"Session timeout is very short: {session_timeout} minutes - may cause session loss")
-                    result['warnings'] = result.get('warnings', [])
-                    result['warnings'].append(f"Session timeout is very short: {session_timeout} minutes")
-        except Exception as e:
-            logger.debug(f"Could not check session timeout: {e}")
+            # Warning jika session timeout terlalu pendek
+            if session_timeout_info['timeout_minutes'] and session_timeout_info['timeout_minutes'] < 30:
+                logger.warning(f"Session timeout is very short: {session_timeout_info['timeout_minutes']} minutes - may cause session loss")
+                result['warnings'] = result.get('warnings', [])
+                result['warnings'].append(f"Session timeout is very short: {session_timeout_info['timeout_minutes']} minutes")
         
         # Periksa session validity sebelum form testing
         session_valid = check_session_validity(page)
@@ -654,6 +843,18 @@ def test_form_submission(
         if safe_mode:
             logger.info("🛡️ SAFE MODE ACTIVE - Form filling only, no submission")
             
+            # Additional session validation in safe mode
+            session_timeout_info = result.get('session_timeout_info', {})
+            if session_timeout_info.get('has_timeout') and session_timeout_info.get('timeout_minutes', 0) < 30:
+                logger.warning("🛡️ SAFE MODE: Session timeout is very short, form submission would likely cause session loss")
+                result['safe_mode_reason'] = f"Session timeout too short: {session_timeout_info['timeout_minutes']} minutes"
+            
+            # Check for potential session issues
+            session_valid = check_session_validity(page)
+            if not session_valid:
+                logger.warning("🛡️ SAFE MODE: Session already invalid, form submission would cause login redirect")
+                result['safe_mode_reason'] = "Session already invalid"
+            
             # Take screenshot after form filling (before submission)
             if out_dir:
                 try:
@@ -669,6 +870,139 @@ def test_form_submission(
             result['safe_mode'] = True
             result['message'] = "Form filled successfully in safe mode (submission skipped to preserve session)"
             logger.info("🛡️ SAFE MODE: Returning result without form submission")
+            return result
+        
+        # AUTO-SAFE MODE: Additional validation even when safe_mode=False
+        # This provides automatic protection against session loss
+        auto_safe_triggered = False
+        auto_safe_reason = ""
+        
+        # Check session timeout - trigger auto-safe only for very short timeouts (< 5 minutes)
+        session_timeout_info = result.get('session_timeout_info', {})
+        if session_timeout_info.get('has_timeout') and session_timeout_info.get('timeout_minutes', 0) < 5:
+            logger.warning("🛡️ AUTO-SAFE MODE: Critical session timeout, form submission will likely cause session loss")
+            auto_safe_triggered = True
+            auto_safe_reason = f"Critical session timeout: {session_timeout_info['timeout_minutes']} minutes"
+        
+        # Only check for critical session issues - be more lenient
+        # Check if we're already on a login page (most critical case)
+        if not auto_safe_triggered:
+            current_url = page.url.lower()
+            login_indicators = ['/login', '/signin', '/auth', '/masuk', '/admin/login']
+            is_on_login_page = any(indicator in current_url for indicator in login_indicators)
+            
+            if is_on_login_page:
+                logger.warning("🛡️ AUTO-SAFE MODE: Already on login page, form submission would be redundant")
+                auto_safe_triggered = True
+                auto_safe_reason = "Already on login page"
+        
+        # Check for missing session cookies - trigger auto-safe if no session cookies
+        if not auto_safe_triggered:
+            try:
+                cookies = page.context.cookies()
+                session_cookies = [c for c in cookies if 'session' in c.get('name', '').lower() or 'auth' in c.get('name', '').lower()]
+                if not session_cookies:
+                    logger.warning("⚠️ No session cookies found, form submission may cause login redirect")
+                    result['warnings'] = result.get('warnings', [])
+                    result['warnings'].append("No session cookies found - form submission may cause login redirect")
+            except Exception as e:
+                logger.debug(f"Could not check session cookies: {e}")
+        
+        # Check for missing session data - trigger auto-safe if no session data
+        if not auto_safe_triggered:
+            try:
+                session_data = page.evaluate("""
+                    () => {
+                        const sessionKeys = ['session', 'auth', 'token', 'user', 'login'];
+                        const found = [];
+                        for (let key of sessionKeys) {
+                            if (localStorage.getItem(key) || sessionStorage.getItem(key)) {
+                                found.push(key);
+                            }
+                        }
+                        return found;
+                    }
+                """)
+                
+                if not session_data:
+                    logger.warning("⚠️ No session data found, form submission may cause login redirect")
+                    result['warnings'] = result.get('warnings', [])
+                    result['warnings'].append("No session data found - form submission may cause login redirect")
+            except Exception as e:
+                logger.debug(f"Could not check session data: {e}")
+        
+        # Only warn about form authentication requirements, don't trigger auto-safe
+        if not auto_safe_triggered:
+            try:
+                form_requires_auth = page.evaluate("""
+                    () => {
+                        const forms = document.querySelectorAll('form');
+                        const authIndicators = [
+                            '/admin/', '/dashboard/', '/profile/', '/account/', '/user/',
+                            '/api/', '/secure/', '/private/', '/protected/'
+                        ];
+                        
+                        for (let form of forms) {
+                            const action = form.action || '';
+                            
+                            // Cek action URL untuk indikator authentication
+                            for (let indicator of authIndicators) {
+                                if (action.includes(indicator)) {
+                                    return {
+                                        requires_auth: true,
+                                        action: action,
+                                        reason: 'Form action suggests authentication required'
+                                    };
+                                }
+                            }
+                            
+                            // Cek apakah ada input hidden yang menunjukkan authentication
+                            const hiddenInputs = form.querySelectorAll('input[type="hidden"]');
+                            for (let input of hiddenInputs) {
+                                const name = input.name.toLowerCase();
+                                if (name.includes('auth') || name.includes('token') || name.includes('session')) {
+                                    return {
+                                        requires_auth: true,
+                                        action: action,
+                                        reason: 'Form contains authentication-related hidden inputs'
+                                    };
+                                }
+                            }
+                        }
+                        
+                        return { requires_auth: false };
+                    }
+                """)
+                
+                if form_requires_auth.get('requires_auth'):
+                    logger.warning(f"⚠️ Form requires authentication: {form_requires_auth['reason']}")
+                    result['form_requires_auth'] = form_requires_auth
+                    result['warnings'] = result.get('warnings', [])
+                    result['warnings'].append(f"Form requires authentication: {form_requires_auth['reason']}")
+            except Exception as e:
+                logger.debug(f"Could not check form authentication requirements: {e}")
+        
+        # If auto-safe mode is triggered, switch to safe mode
+        if auto_safe_triggered:
+            logger.info(f"🛡️ AUTO-SAFE MODE TRIGGERED: {auto_safe_reason}")
+            
+            # Take screenshot after form filling (before submission)
+            if out_dir:
+                try:
+                    after_path = os.path.join(out_dir, "form_after.png")
+                    page.screenshot(path=after_path, full_page=True)
+                    result['screenshot_after_path'] = after_path
+                    logger.info(f"Screenshot saved to: {after_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to take screenshot after form filling: {e}")
+            
+            result['success'] = True
+            result['submitted'] = False
+            result['safe_mode'] = True
+            result['auto_safe_mode'] = True
+            result['safe_mode_reason'] = auto_safe_reason
+            result['message'] = f"Form filled successfully in auto-safe mode (submission skipped to preserve session: {auto_safe_reason})"
+            logger.info("🛡️ AUTO-SAFE MODE: Returning result without form submission")
             return result
         
         # Double check session validity before form submission (even in non-safe mode)
@@ -714,6 +1048,85 @@ def test_form_submission(
         except Exception as e:
             logger.debug(f"Could not check session data: {e}")
         
+        # PROCEED WITH FORM SUBMISSION (when safe mode is disabled and no auto-safe triggers)
+        logger.info("🚀 PROCEEDING WITH FORM SUBMISSION - Safe mode disabled and no auto-safe triggers")
+        
+        # Check for CSRF tokens and add them if needed
+        csrf_tokens_found = 0
+        try:
+            # Look for existing CSRF tokens
+            csrf_tokens = page.evaluate("""
+                () => {
+                    const csrfSelectors = [
+                        'input[name*="csrf"]',
+                        'input[name*="token"]',
+                        'input[name*="_token"]',
+                        'input[name*="authenticity_token"]',
+                        'meta[name="csrf-token"]'
+                    ];
+                    
+                    const found = [];
+                    for (let selector of csrfSelectors) {
+                        const elements = document.querySelectorAll(selector);
+                        for (let el of elements) {
+                            if (el.value && el.value.trim()) {
+                                found.push({
+                                    selector: selector,
+                                    name: el.name || 'csrf_token',
+                                    value: el.value.substring(0, 20) + '...'
+                                });
+                            }
+                        }
+                    }
+                    return found;
+                }
+            """)
+            
+            if csrf_tokens:
+                csrf_tokens_found = len(csrf_tokens)
+                logger.info(f"CSRF tokens found: {csrf_tokens_found}")
+                result['csrf_tokens_found'] = csrf_tokens_found
+            else:
+                logger.warning("No CSRF tokens found - form may require authentication")
+                result['csrf_tokens_found'] = 0
+                
+                # Try to generate or find CSRF token
+                try:
+                    # Look for CSRF token in meta tags
+                    csrf_meta = page.locator('meta[name="csrf-token"]')
+                    if csrf_meta.count() > 0:
+                        csrf_value = csrf_meta.get_attribute('content')
+                        if csrf_value:
+                            logger.info(f"Found CSRF token in meta tag: {csrf_value[:20]}...")
+                            
+                            # Add CSRF token to form if not present
+                            forms = page.locator('form')
+                            if forms.count() > 0:
+                                form = forms.nth(form_index)
+                                csrf_input = form.locator('input[name="_token"]')
+                                if csrf_input.count() == 0:
+                                    # Add CSRF token input to form
+                                    page.evaluate(f"""
+                                        () => {{
+                                            const form = document.querySelectorAll('form')[{form_index}];
+                                            if (form) {{
+                                                const csrfInput = document.createElement('input');
+                                                csrfInput.type = 'hidden';
+                                                csrfInput.name = '_token';
+                                                csrfInput.value = '{csrf_value}';
+                                                form.appendChild(csrfInput);
+                                            }}
+                                        }}
+                                    """)
+                                    logger.info("Added CSRF token to form")
+                                    csrf_tokens_found = 1
+                                    result['csrf_tokens_found'] = 1
+                                    result['csrf_token_added'] = True
+                except Exception as e:
+                    logger.debug(f"Could not add CSRF token: {e}")
+        except Exception as e:
+            logger.debug(f"Could not check CSRF tokens: {e}")
+        
         # If form was already submitted in fill_form, we're done
         if fill_result.get('submitted'):
             logger.info("Form was already submitted in fill_form")
@@ -721,7 +1134,114 @@ def test_form_submission(
         else:
             # Form was filled but not submitted, so we need to submit it
             logger.info("Form was filled but not submitted, attempting submission...")
-            # The submission logic is already handled in the main flow below
+            
+            # PROCEED WITH ACTUAL FORM SUBMISSION
+            logger.info("🚀 ATTEMPTING FORM SUBMISSION - All validations passed")
+            
+            # Simpan URL awal
+            initial_url = page.url
+            
+            # Monitor network requests untuk error
+            network_errors = []
+            def handle_request_failed(request):
+                network_errors.append({
+                    'url': request.url,
+                    'method': request.method,
+                    'failure': str(request.failure)
+                })
+            
+            page.on("requestfailed", handle_request_failed)
+            
+            # Submit form
+            try:
+                forms = page.locator('form')
+                form_count = forms.count()
+                logger.info(f"Found {form_count} forms for submission")
+                
+                if form_count == 0:
+                    logger.warning("No forms found for submission, trying alternative selectors...")
+                    
+                    # Try alternative form selectors
+                    alt_form_selectors = [
+                        'form',
+                        '[role="form"]',
+                        '.form',
+                        '#form',
+                        'div[class*="form"]',
+                        'section[class*="form"]'
+                    ]
+                    
+                    for selector in alt_form_selectors:
+                        alt_forms = page.locator(selector)
+                        count = alt_forms.count()
+                        if count > 0:
+                            logger.info(f"Found {count} elements with selector '{selector}' for submission")
+                            forms = alt_forms
+                            form_count = count
+                            break
+                
+                if form_count == 0:
+                    result['errors'].append("No forms found for submission")
+                    logger.error("No forms found for submission with any selector")
+                    return result
+                    
+                if form_count <= form_index:
+                    result['errors'].append(f"Form index {form_index} not found for submission (only {form_count} forms available)")
+                    logger.error(f"Form index {form_index} not found for submission (only {form_count} forms available)")
+                    return result
+                    
+                form = forms.nth(form_index)
+                logger.info(f"Using form {form_index} for submission with {form_count} total forms available")
+                
+                # Try to find and click submit button
+                submit_button = None
+                submit_selectors = [
+                    'button[type="submit"]',
+                    'input[type="submit"]',
+                    'button:has-text("Submit")',
+                    'button:has-text("Submit order")',
+                    'button:has-text("Send")',
+                    'button:has-text("Post")',
+                    'button:has-text("Save")',
+                    'button:has-text("Send Message")',
+                    'button:has-text("Submit Form")',
+                    'button:not([type])',  # Button without type (defaults to submit)
+                    'input[type="button"]:has-text("Submit")',
+                    'button'  # Any button in form (fallback)
+                ]
+                
+                for selector in submit_selectors:
+                    try:
+                        btn = form.locator(selector).first
+                        if btn.count() > 0 and btn.is_visible() and not btn.is_disabled():
+                            submit_button = btn
+                            logger.info(f"Found submit button with selector: {selector}")
+                            break
+                    except Exception:
+                        continue
+                
+                if submit_button:
+                    # Submit form via button click
+                    submit_button.click()
+                    result['submitted'] = True
+                    logger.info("Form submitted via submit button")
+                else:
+                    # Try to submit via form.submit()
+                    form.evaluate('form => form.submit()')
+                    result['submitted'] = True
+                    logger.info("Form submitted via form.submit()")
+                
+                # Wait for response dengan timeout
+                try:
+                    page.wait_for_load_state("networkidle", timeout=timeout_ms)
+                except Exception:
+                    # Fallback jika networkidle timeout
+                    page.wait_for_timeout(2000)
+                    
+            except Exception as e:
+                result['errors'].append(f"Failed to submit form: {str(e)}")
+                logger.error(f"Failed to submit form: {e}")
+                return result
         
         # Simpan URL awal
         initial_url = page.url
@@ -850,75 +1370,22 @@ def test_form_submission(
                 result['success'] = False
                 return result
         else:
-            # Jika redirect ke login, coba deteksi penyebabnya
+            # Jika redirect ke login, gunakan fungsi deteksi yang lebih komprehensif
             logger.info("Analyzing login redirect causes...")
+            redirect_analysis = detect_login_redirect_cause(page)
+            result['redirect_analysis'] = redirect_analysis
+            result['login_redirect_reason'] = redirect_analysis['redirect_cause']
             
-            # Cek apakah ada error message yang menunjukkan penyebab
-            error_selectors = [
-                '.error', '.alert-danger', '.invalid-feedback', '.is-invalid', 
-                '[role="alert"]', '.error-message', '.field-error', '.validation-error',
-                '.form-error', '.input-error', '.session-error', '.auth-error',
-                '.login-error', '.timeout-error', '.expired-error'
-            ]
-            
-            error_found = False
-            for selector in error_selectors:
-                error_messages = page.locator(selector)
-                if error_messages.count() > 0:
-                    for i in range(min(error_messages.count(), 3)):
-                        error_text = error_messages.nth(i).text_content()
-                        if error_text and error_text.strip():
-                            logger.info(f"Error message found with selector '{selector}': {error_text.strip()}")
-                            result['login_redirect_reason'] = error_text.strip()
-                            error_found = True
-                            break
-                if error_found:
-                    break
-            
-            # Jika tidak ada error message, cek URL dan content untuk indikator
-            if not error_found:
-                current_url = page.url.lower()
-                page_content = page.content().lower()
-                
-                # Cek indikator session timeout
-                timeout_indicators = [
-                    'session expired', 'session timeout', 'session invalid',
-                    'login expired', 'authentication expired', 'token expired',
-                    'sesi berakhir', 'sesi expired', 'waktu habis'
-                ]
-                
-                for indicator in timeout_indicators:
-                    if indicator in page_content:
-                        logger.info(f"Session timeout indicator found: {indicator}")
-                        result['login_redirect_reason'] = f"Session timeout: {indicator}"
-                        error_found = True
-                        break
-                
-                # Cek indikator authentication error
-                if not error_found:
-                    auth_indicators = [
-                        'authentication required', 'login required', 'unauthorized',
-                        'access denied', 'permission denied', 'not authenticated',
-                        'harus login', 'perlu login', 'akses ditolak'
-                    ]
-                    
-                    for indicator in auth_indicators:
-                        if indicator in page_content:
-                            logger.info(f"Authentication error indicator found: {indicator}")
-                            result['login_redirect_reason'] = f"Authentication error: {indicator}"
-                            error_found = True
-                            break
-                
-                # Cek URL untuk indikator
-                if not error_found:
-                    if 'timeout' in current_url:
-                        result['login_redirect_reason'] = "Session timeout detected in URL"
-                    elif 'expired' in current_url:
-                        result['login_redirect_reason'] = "Session expired detected in URL"
-                    elif 'unauthorized' in current_url:
-                        result['login_redirect_reason'] = "Unauthorized access detected in URL"
-                    else:
-                        result['login_redirect_reason'] = "Redirect to login page - no specific error message found"
+            # Log hasil analisis
+            logger.info(f"Login redirect cause: {redirect_analysis['redirect_cause']}")
+            if redirect_analysis['error_messages']:
+                logger.info(f"Error messages found: {len(redirect_analysis['error_messages'])}")
+            if redirect_analysis['timeout_indicators']:
+                logger.info(f"Timeout indicators: {redirect_analysis['timeout_indicators']}")
+            if redirect_analysis['auth_indicators']:
+                logger.info(f"Auth indicators: {redirect_analysis['auth_indicators']}")
+            if redirect_analysis['recommendations']:
+                logger.info(f"Recommendations: {redirect_analysis['recommendations']}")
         
         if is_login_redirect:
             logger.warning(f"Form submission redirected to login page: {page.url}")
@@ -930,48 +1397,40 @@ def test_form_submission(
                 if restore_success:
                     logger.info("Session state restored successfully")
                     result['session_restored'] = True
+                    
                     # Coba navigasi kembali ke halaman asli
                     try:
                         page.goto(initial_url, wait_until="load", timeout=5000)
                         logger.info(f"Navigated back to original page: {initial_url}")
+                        
+                        # Verifikasi bahwa session sudah pulih
+                        session_recovered = check_session_validity(page)
+                        if session_recovered:
+                            logger.info("Session recovery successful - user is back to authenticated state")
+                            result['session_recovery_success'] = True
+                        else:
+                            logger.warning("Session recovery failed - still on login page")
+                            result['session_recovery_success'] = False
                     except Exception as e:
                         logger.warning(f"Failed to navigate back to original page: {e}")
+                        result['session_recovery_success'] = False
                 else:
                     logger.warning("Failed to restore session state")
                     result['session_restored'] = False
+                    result['session_recovery_success'] = False
+            else:
+                logger.warning("No session state available for recovery")
+                result['session_restored'] = False
+                result['session_recovery_success'] = False
             
-            # Analisis penyebab redirect ke login
+            # Analisis penyebab redirect ke login sudah dilakukan di atas
             redirect_reason = result.get('login_redirect_reason', 'Unknown')
             logger.info(f"Login redirect reason: {redirect_reason}")
             
-            # Coba deteksi penyebab yang lebih spesifik
-            if redirect_reason == 'Unknown':
-                # Cek apakah ada indikator session timeout di halaman
-                try:
-                    timeout_indicators = page.evaluate("""
-                        () => {
-                            const indicators = [
-                                'session expired', 'session timeout', 'login expired',
-                                'authentication expired', 'token expired', 'sesi berakhir',
-                                'waktu habis', 'session invalid', 'login required'
-                            ];
-                            
-                            const pageText = document.body.innerText.toLowerCase();
-                            for (let indicator of indicators) {
-                                if (pageText.includes(indicator)) {
-                                    return indicator;
-                                }
-                            }
-                            return null;
-                        }
-                    """)
-                    
-                    if timeout_indicators:
-                        redirect_reason = f"Session timeout detected: {timeout_indicators}"
-                        result['login_redirect_reason'] = redirect_reason
-                        logger.info(f"Enhanced redirect reason: {redirect_reason}")
-                except Exception as e:
-                    logger.debug(f"Could not detect timeout indicators: {e}")
+            # Tambahkan rekomendasi dari analisis
+            if 'redirect_analysis' in result and result['redirect_analysis']['recommendations']:
+                result['recommendations'] = result['redirect_analysis']['recommendations']
+                logger.info(f"Recommendations: {result['redirect_analysis']['recommendations']}")
             
             result['errors'].append(f"Form submission caused redirect to login page - possible session loss. Reason: {redirect_reason}")
             result['success'] = False

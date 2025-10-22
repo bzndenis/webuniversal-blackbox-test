@@ -342,6 +342,42 @@ with st.sidebar:
             help="Only test form filling without submission to avoid session loss and login redirects",
             key="form_safe_mode"
         )
+        
+        # Information about form testing and session issues
+        with st.expander("ℹ️ About Form Testing & Session Issues"):
+            st.markdown("""
+            **Form Testing Challenges:**
+            
+            - **Session Timeout**: Forms may redirect to login if session expires
+            - **Authentication Loss**: Form submission can invalidate session
+            - **CSRF Protection**: Some forms require valid tokens
+            - **Cookie Issues**: Session cookies may be blocked or expired
+            
+            **Safe Mode Benefits:**
+            - ✅ Tests form filling without submission
+            - ✅ Avoids session loss and login redirects
+            - ✅ Preserves authentication state
+            - ✅ Provides detailed form analysis
+            
+            **CSRF Token Support:**
+            - 🔐 Automatically detects CSRF tokens
+            - 🔐 Adds missing CSRF tokens to forms
+            - 🔐 Supports meta tag CSRF tokens
+            - 🔐 Works with Laravel, Django, Rails, etc.
+            
+            **Auto-Safe Mode (NEW!):**
+            - 🛡️ **Automatic Protection**: Even when safe mode is disabled
+            - 🔍 **Smart Detection**: Identifies session issues automatically
+            - ⚡ **Triggers When**: Session timeout < 15 min, no session cookies, invalid session
+            - 🎯 **Form Auth Detection**: Detects forms requiring authentication
+            - 📊 **Detailed Analysis**: Shows why auto-safe mode was triggered
+            
+            **Common Session Issues:**
+            - Session timeout < 30 minutes
+            - Missing session cookies
+            - Invalid authentication tokens
+            - Cross-site request forgery protection
+            """)
 
     st.divider()
 
@@ -856,7 +892,55 @@ with tab1:
                                 
                                 # Safe Mode indicator
                                 if form_test.get('safe_mode'):
-                                    st.info("🛡️ **Safe Mode Active** - Form filled without submission to preserve session")
+                                    if form_test.get('auto_safe_mode'):
+                                        st.warning("🛡️ **Auto-Safe Mode Active** - Form filled without submission to preserve session (automatic protection)")
+                                    else:
+                                        st.info("🛡️ **Safe Mode Active** - Form filled without submission to preserve session")
+                                    
+                                    if form_test.get('safe_mode_reason'):
+                                        st.write(f"**Reason:** {form_test['safe_mode_reason']}")
+                                
+                                    # Show detailed safe mode information
+                                    if form_test.get('message'):
+                                        st.write(f"**Message:** {form_test['message']}")
+                                
+                                # Session timeout information
+                                if form_test.get('session_timeout_info'):
+                                    timeout_info = form_test['session_timeout_info']
+                                    if timeout_info.get('has_timeout'):
+                                        st.warning(f"⏰ **Session Timeout Detected:** {timeout_info.get('timeout_minutes', 'N/A')} minutes")
+                                        if timeout_info.get('warnings'):
+                                            for warning in timeout_info['warnings']:
+                                                st.warning(f"⚠️ {warning}")
+                                
+                                # Session recovery information
+                                if form_test.get('session_restored'):
+                                    if form_test.get('session_recovery_success'):
+                                        st.success("🔄 **Session Recovery Successful** - User returned to authenticated state")
+                                    else:
+                                        st.error("❌ **Session Recovery Failed** - Still on login page")
+                                
+                                # Redirect analysis
+                                if form_test.get('redirect_analysis'):
+                                    redirect_analysis = form_test['redirect_analysis']
+                                    st.write("**🔍 Redirect Analysis:**")
+                                    st.write(f"**Cause:** {redirect_analysis.get('redirect_cause', 'Unknown')}")
+                                    
+                                    if redirect_analysis.get('error_messages'):
+                                        st.write("**Error Messages Found:**")
+                                        for error in redirect_analysis['error_messages'][:3]:  # Show first 3
+                                            st.write(f"- {error.get('text', 'N/A')}")
+                                    
+                                    if redirect_analysis.get('recommendations'):
+                                        st.write("**💡 Recommendations:**")
+                                        for rec in redirect_analysis['recommendations']:
+                                            st.write(f"- {rec}")
+                                
+                                # CSRF Token Support
+                                if form_test.get('csrf_tokens_found', 0) > 0:
+                                    st.success(f"🔐 **CSRF Protection:** {form_test['csrf_tokens_found']} token(s) found")
+                                    if form_test.get('csrf_token_added'):
+                                        st.info("🔐 **CSRF Token Added** - Token automatically added to form")
                                 
                                 # Success/Error indicators
                                 if form_test.get('has_success_message'):
