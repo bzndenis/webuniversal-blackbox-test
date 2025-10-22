@@ -11,6 +11,7 @@ from typing import Dict, Any, List, Optional
 # Set event loop policy for Windows BEFORE importing Playwright
 # This is handled in main.py, no need to re-apply here
 from playwright.sync_api import sync_playwright, Page, Browser, BrowserContext
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from .component_tester import run_comprehensive_component_test
 
 logging.basicConfig(level=logging.INFO)
@@ -175,24 +176,48 @@ def run_page_smoke(
                 "actual": "found" if html_lang else "not found"
             })
 
-            # Check for broken images
+            # Check for broken images (robust terhadap DOM dinamis)
             images = page.locator('img')
             broken_images = 0
-            for i in range(min(images.count(), 10)):  # Check first 10 images
-                img = images.nth(i)
-                try:
-                    natural_width = img.evaluate('img => img.naturalWidth')
-                    if natural_width == 0:
+            checked_images = 0
+            try:
+                # Snapshot semua naturalWidth sekaligus untuk menghindari race ketika DOM berubah
+                widths = images.evaluate_all("imgs => imgs.map(img => img.naturalWidth)")
+                for w in widths[:10]:
+                    checked_images += 1
+                    try:
+                        if int(w) == 0:
+                            broken_images += 1
+                    except Exception:
+                        # Jika nilai tidak dapat di-cast, anggap bermasalah
                         broken_images += 1
-                except (NotImplementedError, RuntimeError) as eval_error:
-                    # Skip this image if evaluation fails
-                    logger.warning(f"Could not evaluate image {i}: {eval_error}")
-            
+            except Exception as eval_all_error:
+                # Fallback per-elemen dengan timeout singkat dan scroll jika perlu
+                total = min(images.count(), 10)
+                for i in range(total):
+                    img = images.nth(i)
+                    try:
+                        # Coba evaluasi cepat
+                        natural_width = img.evaluate('el => el.naturalWidth', timeout=2000)
+                    except PlaywrightTimeoutError:
+                        # Scroll agar terlihat lalu coba lagi dengan timeout singkat
+                        try:
+                            img.scroll_into_view_if_needed(timeout=1000)
+                            natural_width = img.evaluate('el => el.naturalWidth', timeout=1000)
+                        except Exception:
+                            natural_width = 0
+                    except Exception as eval_error:
+                        logger.warning(f"Could not evaluate image {i}: {eval_error}")
+                        natural_width = 0
+                    checked_images += 1
+                    if not natural_width or int(natural_width) == 0:
+                        broken_images += 1
+
             result["assertions"].append({
                 "assert": "no_broken_images",
                 "pass": broken_images == 0,
                 "actual": f"{broken_images} broken",
-                "checked": min(images.count(), 10)
+                "checked": checked_images
             })
 
             # Find and count forms
