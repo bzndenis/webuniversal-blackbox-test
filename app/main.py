@@ -76,7 +76,7 @@ if sys.platform == 'win32':
 app_dir = Path(__file__).parent
 sys.path.insert(0, str(app_dir.parent))
 
-from app.runners.crawl import crawl_site
+from app.runners.crawl import crawl_site, crawl_site_with_auth
 from app.runners.playwright_runner import run_page_smoke, run_yaml_scenario
 from app.services.reporter import generate_all_reports
 from app.services.yaml_loader import load_yaml_spec, create_sample_yaml
@@ -465,15 +465,30 @@ with tab1:
                     include_patterns = [include_pattern] if include_pattern else None
                     exclude_patterns = [exclude_pattern] if exclude_pattern else None
                     
-                    urls_to_test = crawl_site(
-                        base_url=base_url,
-                        max_depth=max_depth,
-                        max_pages=max_pages,
-                        same_origin_only=same_origin,
-                        include_patterns=include_patterns,
-                        exclude_patterns=exclude_patterns,
-                        timeout=timeout
-                    )
+                    # Use authenticated crawler if auth is enabled
+                    if auth_config and auth_config.get("enabled"):
+                        st.info("🔐 Using authenticated crawler with login session")
+                        urls_to_test = crawl_site_with_auth(
+                            base_url=base_url,
+                            max_depth=max_depth,
+                            max_pages=max_pages,
+                            same_origin_only=same_origin,
+                            include_patterns=include_patterns,
+                            exclude_patterns=exclude_patterns,
+                            timeout=timeout,
+                            auth=auth_config,
+                            headless=headless
+                        )
+                    else:
+                        urls_to_test = crawl_site(
+                            base_url=base_url,
+                            max_depth=max_depth,
+                            max_pages=max_pages,
+                            same_origin_only=same_origin,
+                            include_patterns=include_patterns,
+                            exclude_patterns=exclude_patterns,
+                            timeout=timeout
+                        )
                 
                 st.success(f"✅ Found {len(urls_to_test)} pages to test")
             
