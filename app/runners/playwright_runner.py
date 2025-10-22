@@ -1,12 +1,16 @@
 """Playwright-based test runner for automated page testing."""
 
-from playwright.sync_api import sync_playwright, Page, Browser, BrowserContext
-from typing import Dict, Any, List, Optional
+import sys
+import os
 import time
 import json
-import os
 import logging
 from datetime import datetime
+from typing import Dict, Any, List, Optional
+
+# Set event loop policy for Windows BEFORE importing Playwright
+# This is handled in main.py, no need to re-apply here
+from playwright.sync_api import sync_playwright, Page, Browser, BrowserContext
 from .component_tester import run_comprehensive_component_test
 
 logging.basicConfig(level=logging.INFO)
@@ -147,9 +151,13 @@ def run_page_smoke(
             broken_images = 0
             for i in range(min(images.count(), 10)):  # Check first 10 images
                 img = images.nth(i)
-                natural_width = img.evaluate('img => img.naturalWidth')
-                if natural_width == 0:
-                    broken_images += 1
+                try:
+                    natural_width = img.evaluate('img => img.naturalWidth')
+                    if natural_width == 0:
+                        broken_images += 1
+                except (NotImplementedError, RuntimeError) as eval_error:
+                    # Skip this image if evaluation fails
+                    logger.warning(f"Could not evaluate image {i}: {eval_error}")
             
             result["assertions"].append({
                 "assert": "no_broken_images",
@@ -193,9 +201,12 @@ def run_page_smoke(
             browser.close()
     
     except Exception as e:
+        import traceback
+        error_detail = traceback.format_exc()
         result["status"] = "ERROR"
-        result["error"] = str(e)
-        logger.error(f"✗ Error testing {url}: {e}")
+        result["error"] = f"{type(e).__name__}: {str(e)}"
+        logger.error(f"✗ Error testing {url}: {type(e).__name__}")
+        logger.error(f"Full traceback:\n{error_detail}")
     
     # Save result as JSON
     result_path = os.path.join(out_dir, "result.json")

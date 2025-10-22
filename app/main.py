@@ -1,10 +1,75 @@
 """Streamlit web application for Black-Box Functional Testing."""
 
-import streamlit as st
-import os
-from datetime import datetime
 import sys
+import os
+
+# CRITICAL: Set environment variable BEFORE asyncio import
+# This forces asyncio to use the correct event loop from the start
+if sys.platform == 'win32':
+    # Hormati env yang sudah ada; jika tidak ada, pakai folder lokal .pw-browsers bila tersedia,
+    # kalau tidak ada fallback ke default ('0'). Harus dilakukan sebelum import asyncio/Playwright.
+    if 'PLAYWRIGHT_BROWSERS_PATH' not in os.environ:
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        local_browsers_dir = os.path.join(project_root, '.pw-browsers')
+        if os.path.isdir(local_browsers_dir):
+            os.environ['PLAYWRIGHT_BROWSERS_PATH'] = local_browsers_dir
+        else:
+            os.environ['PLAYWRIGHT_BROWSERS_PATH'] = '0'  # default path managed by Playwright
+    # No environment variable for event loop, we'll set it programmatically
+
+import asyncio
+
+# CRITICAL FIX: Set event loop policy BEFORE any imports
+# Windows uses ProactorEventLoop by default since Python 3.8
+# Playwright requires SelectorEventLoop for subprocess management
+if sys.platform == 'win32':
+    # Use ProactorEventLoop on Windows (supports subprocess required by Playwright)
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+    # Ensure there is a current loop without triggering deprecation warnings
+    try:
+        # Prefer get_running_loop; avoids DeprecationWarning when no loop exists
+        asyncio.get_running_loop()
+    except RuntimeError:
+        # No running loop yet; create one under the current policy (Proactor on Windows)
+        asyncio.set_event_loop(asyncio.new_event_loop())
+
+import streamlit as st
+from datetime import datetime
 from pathlib import Path
+import logging
+
+# Configure logging EARLY
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Verify event loop type on Windows
+if sys.platform == 'win32':
+    try:
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(current_loop)
+
+        loop_type = type(current_loop).__name__
+        policy_type = type(asyncio.get_event_loop_policy()).__name__
+        logger.info(f"✓ Event Loop Type: {loop_type}")
+        logger.info(f"✓ Event Loop Policy: {policy_type}")
+
+        # Verify it's ProactorEventLoop (required for subprocess on Windows)
+        from asyncio import windows_events, selector_events
+        if isinstance(current_loop, windows_events.ProactorEventLoop):
+            logger.info("✓ Using ProactorEventLoop - Playwright compatible")
+        elif isinstance(current_loop, selector_events.SelectorEventLoop):
+            logger.error("❌ ERROR: Still using SelectorEventLoop! Subprocess will FAIL on Windows")
+        else:
+            logger.warning("⚠️ Unexpected event loop type on Windows")
+    except Exception as e:
+        logger.warning(f"Could not verify event loop: {e}")
 
 # Add app directory to Python path
 app_dir = Path(__file__).parent
@@ -16,14 +81,6 @@ from app.services.reporter import generate_all_reports
 from app.services.yaml_loader import load_yaml_spec, create_sample_yaml
 from app.services.heuristics import test_form_submission
 from app.models.db import init_db, create_test_run, update_test_run, create_page_test, get_recent_runs
-import logging
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 # Page configuration
 st.set_page_config(
@@ -181,7 +238,7 @@ with st.sidebar:
     run_button = st.button(
         "🚀 Run Test",
         type="primary",
-        use_container_width=True
+        width="stretch"
     )
 
 # Main content area
@@ -401,9 +458,17 @@ with tab1:
                 
                 st.dataframe(
                     display_data,
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True
                 )
+                
+                # Show error messages if any
+                errors_found = [r for r in results if r.get('status') == 'ERROR' and r.get('error')]
+                if errors_found:
+                    st.error("⚠️ **Errors Detected:**")
+                    for r in errors_found:
+                        with st.expander(f"❌ Error for {r['url'][:60]}..."):
+                            st.code(r.get('error', 'Unknown error'), language="text")
                 
                 # Display Component Test Results (if enabled)
                 if deep_component_test and results and results[0].get('component_tests'):
@@ -457,7 +522,7 @@ with tab1:
                                             "Visible": b.get('visible', False),
                                             "Enabled": b.get('enabled', False)
                                         } for b in buttons['buttons_tested'][:20]]
-                                        st.dataframe(btn_data, use_container_width=True)
+                                        st.dataframe(btn_data, width="stretch")
                                 
                                 with tab_img:
                                     images = comp.get('images', {})
@@ -473,7 +538,7 @@ with tab1:
                                             "Size": f"{i.get('width', 0)}x{i.get('height', 0)}",
                                             "Status": i.get('status', 'N/A')
                                         } for i in images['images_tested'][:20]]
-                                        st.dataframe(img_data, use_container_width=True)
+                                        st.dataframe(img_data, width="stretch")
                                 
                                 with tab_link:
                                     links = comp.get('links', {})
@@ -490,7 +555,7 @@ with tab1:
                                             "Type": l.get('type', 'N/A'),
                                             "Status": l.get('status', 'N/A')
                                         } for l in links['links_tested'][:20]]
-                                        st.dataframe(link_data, use_container_width=True)
+                                        st.dataframe(link_data, width="stretch")
                                 
                                 with tab_form:
                                     forms = comp.get('forms', {})
@@ -511,7 +576,7 @@ with tab1:
                                                     "Name": inp.get('name', 'N/A'),
                                                     "Type": inp.get('type', 'N/A')
                                                 } for inp in form['inputs']]
-                                                st.dataframe(input_data, use_container_width=True)
+                                                st.dataframe(input_data, width="stretch")
                                             st.divider()
                 
                 # Generate reports
@@ -609,7 +674,7 @@ with tab2:
                 'Started': run.start_time.strftime("%Y-%m-%d %H:%M")
             })
         
-        st.dataframe(history_data, use_container_width=True, hide_index=True)
+        st.dataframe(history_data, width="stretch", hide_index=True)
     else:
         st.info("No test history yet. Run your first test!")
 

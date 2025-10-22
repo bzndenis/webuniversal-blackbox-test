@@ -49,6 +49,7 @@ reports/
 
 # Playwright
 .playwright/
+.pw-browsers/
 playwright-report/
 test-results/
 

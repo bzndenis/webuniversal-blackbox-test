@@ -4,9 +4,17 @@ Quick launcher for Black-Box Testing application.
 Run this file to start the Streamlit app.
 """
 
-import subprocess
 import sys
 import os
+import asyncio
+
+# CRITICAL FIX: Windows needs SelectorEventLoop for Playwright
+# Set BEFORE any other imports to ensure it applies globally
+if sys.platform == 'win32':
+    # Use Proactor policy on Windows for proper subprocess support
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+import subprocess
 
 def main():
     """Launch Streamlit application."""

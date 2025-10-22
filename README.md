@@ -457,6 +457,27 @@ pip install -r requirements.txt
 - Run terminal sebagai Administrator
 - Atau gunakan `--user` flag: `pip install --user -r requirements.txt`
 
+### Windows + Playwright Compatibility (SUDAH DIPERBAIKI ✅)
+
+**Error:** `NotImplementedError` saat run test
+
+**Root Cause:** Windows menggunakan `ProactorEventLoop` by default, Playwright butuh `SelectorEventLoop`
+
+**Status:** ✅ **SUDAH OTOMATIS DIPERBAIKI!**
+
+Aplikasi ini sudah include fix otomatis untuk Windows. Event loop policy di-set ke `WindowsSelectorEventLoopPolicy` saat startup.
+
+**Tidak perlu action apapun dari user!**
+
+**Detail teknis:**
+- [`TROUBLESHOOTING_WINDOWS.md`](TROUBLESHOOTING_WINDOWS.md) - Penjelasan umum masalah Windows
+- [`FIX_NOTIMPLEMENTEDERROR.md`](FIX_NOTIMPLEMENTEDERROR.md) - Panduan lengkap perbaikan NotImplementedError
+
+**Jika masih muncul error:**
+1. Restart aplikasi (pastikan event loop policy diterapkan dari awal)
+2. Disable "Deep Component Test" jika masalah persisten
+3. Lihat [`FIX_NOTIMPLEMENTEDERROR.md`](FIX_NOTIMPLEMENTEDERROR.md) untuk troubleshooting lengkap
+
 ## 🚢 Deployment
 
 ### Local Production

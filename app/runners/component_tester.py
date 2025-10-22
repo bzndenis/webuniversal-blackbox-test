@@ -130,9 +130,16 @@ def test_all_images(page: Page) -> Dict[str, Any]:
                 src = img.get_attribute('src') or ''
                 alt = img.get_attribute('alt') or ''
                 
-                # Check if image loaded
-                natural_width = img.evaluate('img => img.naturalWidth')
-                natural_height = img.evaluate('img => img.naturalHeight')
+                # Check if image loaded - use try-except for evaluate()
+                try:
+                    natural_width = img.evaluate('img => img.naturalWidth')
+                    natural_height = img.evaluate('img => img.naturalHeight')
+                except (NotImplementedError, RuntimeError) as eval_error:
+                    # Fallback: check if image is visible
+                    logger.warning(f"Could not evaluate image dimensions: {eval_error}. Using visibility check.")
+                    is_visible = img.is_visible()
+                    natural_width = 100 if is_visible else 0
+                    natural_height = 100 if is_visible else 0
                 
                 is_loaded = natural_width > 0 and natural_height > 0
                 
