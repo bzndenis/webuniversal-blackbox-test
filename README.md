@@ -17,6 +17,7 @@ Automated web testing tool untuk melakukan black-box functional testing pada web
 - 🖱️ **Button Testing**: Check apakah semua button clickable dan berfungsi
 - 🖼️ **Image Validation**: Verifikasi semua image load dengan baik, detect broken images
 - 🔗 **Link Checking**: Test semua link (internal & external), detect empty links
+- 🔒 **Penetration Testing**: XSS dan SQL Injection vulnerability testing
 - 📝 **YAML Scenarios**: Custom test workflows dengan actions dan assertions
 - 📊 **Rich Reports**: Export ke HTML, CSV, dan JSON
 - 💾 **Test History**: Track semua test runs dalam SQLite database
@@ -138,6 +139,32 @@ Mode ini mentest satu halaman spesifik dengan analisis komponen mendalam.
 - ✅ **Semua Link**: Valid, empty, internal, atau external
 - ✅ **Semua Form**: Complete dengan action & submit button
 - ✅ **Interactive Elements**: Checkbox, radio, select, textarea
+
+## 🔒 Penetration Testing
+
+Aplikasi ini dilengkapi dengan fitur penetration testing untuk mendeteksi kerentanan keamanan:
+
+### XSS (Cross-Site Scripting) Testing
+- **Basic Script Injection**: `<script>alert('XSS')</script>`
+- **Image Tag XSS**: `<img src=x onerror=alert('XSS')>`
+- **SVG XSS**: `<svg onload=alert('XSS')>`
+- **Input Tag XSS**: `<input onfocus=alert('XSS') autofocus>`
+- **Link XSS**: `<a href=javascript:alert('XSS')>Click</a>`
+
+### SQL Injection Testing
+- **Basic Union Select**: `' UNION SELECT 1,2,3--`
+- **Boolean-based**: `' OR 1=1--`, `' AND 1=2--`
+- **Time-based**: `' OR SLEEP(3)--`
+- **Authentication Bypass**: `' OR '1'='1`, `admin'--`
+- **Error-based**: Deteksi error messages dari database
+
+### Cara Menggunakan Penetration Testing
+1. Di sidebar, aktifkan **"XSS Testing"** dan/atau **"SQL Injection Testing"**
+2. Jalankan test seperti biasa
+3. Lihat hasil di bagian **"🔒 Penetration Testing Results"**
+4. Vulnerabilities akan ditampilkan dengan detail payload dan risk level
+
+⚠️ **PENTING**: Hanya gunakan pada aplikasi yang Anda miliki atau memiliki izin untuk testing!
 
 ## 📊 Test Reports
 

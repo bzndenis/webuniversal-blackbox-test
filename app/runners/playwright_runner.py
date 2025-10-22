@@ -14,6 +14,8 @@ from playwright.sync_api import sync_playwright, Page, Browser, BrowserContext
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from .component_tester import run_comprehensive_component_test
 from app.services.heuristics import perform_login
+from app.services.xss_pentest import XSSPentester
+from app.services.sql_pentest import SQLPentester
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -56,7 +58,9 @@ def run_page_smoke(
     deep_component_test: bool = False,
     test_forms: bool = False,
     form_safe_mode: bool = True,
-    auth: Optional[Dict[str, Any]] = None
+    auth: Optional[Dict[str, Any]] = None,
+    enable_xss_test: bool = False,
+    enable_sql_test: bool = False
 ) -> Dict[str, Any]:
     """
     Jalankan smoke test pada satu halaman.
@@ -319,6 +323,31 @@ def run_page_smoke(
                 except Exception as e:
                     logger.error(f"Form test error: {e}")
                     result['form_test_error'] = str(e)
+
+            # Penetration Testing
+            if enable_xss_test or enable_sql_test:
+                logger.info("🔒 Running penetration tests...")
+                
+                try:
+                    # XSS Testing
+                    if enable_xss_test:
+                        logger.info("Testing XSS vulnerabilities...")
+                        xss_tester = XSSPentester()
+                        xss_result = xss_tester.run_xss_test(page, url)
+                        result['xss_test'] = xss_result
+                        logger.info(f"XSS test complete: {xss_result['summary']['vulnerabilities_found']} vulnerabilities found")
+                    
+                    # SQL Injection Testing
+                    if enable_sql_test:
+                        logger.info("Testing SQL injection vulnerabilities...")
+                        sql_tester = SQLPentester()
+                        sql_result = sql_tester.run_sql_test(page, url)
+                        result['sql_test'] = sql_result
+                        logger.info(f"SQL test complete: {sql_result['summary']['vulnerabilities_found']} vulnerabilities found")
+                        
+                except Exception as e:
+                    logger.error(f"Penetration test error: {e}")
+                    result['pentest_error'] = str(e)
 
             # Screenshot
             screenshot_path = os.path.join(out_dir, "screenshot.png")

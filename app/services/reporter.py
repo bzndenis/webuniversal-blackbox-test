@@ -231,6 +231,8 @@ HTML_TEMPLATE = """
                         <th>Network</th>
                         <th>Assertions</th>
                         <th>Forms</th>
+                        <th>XSS</th>
+                        <th>SQL</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -263,6 +265,20 @@ HTML_TEMPLATE = """
                             </span>
                         </td>
                         <td>{{ result.forms_found }}</td>
+                        <td>
+                            {% if result.xss_test and result.xss_test.summary.vulnerabilities_found > 0 %}
+                                <span class="badge badge-danger">{{ result.xss_test.summary.vulnerabilities_found }}</span>
+                            {% else %}
+                                <span class="badge badge-success">0</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if result.sql_test and result.sql_test.summary.vulnerabilities_found > 0 %}
+                                <span class="badge badge-danger">{{ result.sql_test.summary.vulnerabilities_found }}</span>
+                            {% else %}
+                                <span class="badge badge-success">0</span>
+                            {% endif %}
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -357,6 +373,8 @@ def generate_csv_report(
             'Assertions Total',
             'Forms Found',
             'Buttons Found',
+            'XSS Vulnerabilities',
+            'SQL Vulnerabilities',
             'Timestamp'
         ])
         
@@ -376,6 +394,8 @@ def generate_csv_report(
                 total,
                 result.get("forms_found", 0),
                 result.get("buttons_found", 0),
+                result.get("xss_test", {}).get("summary", {}).get("vulnerabilities_found", 0),
+                result.get("sql_test", {}).get("summary", {}).get("vulnerabilities_found", 0),
                 result.get("timestamp", "")
             ])
 

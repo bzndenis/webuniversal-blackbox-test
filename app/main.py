@@ -327,6 +327,22 @@ with st.sidebar:
         key="test_deep_component"
     )
     
+    # Penetration Testing Options
+    st.subheader("🔒 Penetration Testing")
+    enable_xss_test = st.checkbox(
+        "XSS Testing",
+        value=st.session_state.get("enable_xss_test", False),
+        help="Test Cross-Site Scripting vulnerabilities",
+        key="enable_xss_test"
+    )
+    
+    enable_sql_test = st.checkbox(
+        "SQL Injection Testing",
+        value=st.session_state.get("enable_sql_test", False),
+        help="Test SQL Injection vulnerabilities",
+        key="enable_sql_test"
+    )
+    
     test_forms = st.checkbox(
         "Test Forms Submission (Experimental)",
         value=st.session_state.test_forms,
@@ -666,7 +682,9 @@ with tab1:
                         deep_component_test=deep_component_test,
                         test_forms=test_forms,
                         form_safe_mode=form_safe_mode_value,
-                        auth=auth_config
+                        auth=auth_config,
+                        enable_xss_test=enable_xss_test,
+                        enable_sql_test=enable_sql_test
                     )
                     
                     # Form testing is now handled in run_page_smoke with test_forms parameter
@@ -990,6 +1008,49 @@ with tab1:
                                         st.write(f"- {error}")
                                 
                                 st.divider()
+                
+                # Display Penetration Testing Results
+                if (enable_xss_test or enable_sql_test) and results:
+                    st.subheader("🔒 Penetration Testing Results")
+                    
+                    for idx, r in enumerate(results):
+                        pentest_results = []
+                        
+                        # XSS Test Results
+                        if 'xss_test' in r and r['xss_test']:
+                            xss_test = r['xss_test']
+                            pentest_results.append(('XSS', xss_test))
+                        
+                        # SQL Test Results  
+                        if 'sql_test' in r and r['sql_test']:
+                            sql_test = r['sql_test']
+                            pentest_results.append(('SQL Injection', sql_test))
+                        
+                        if pentest_results:
+                            with st.expander(f"🔒 Penetration Test Results - {r['url'][:80]}..."):
+                                for test_type, test_data in pentest_results:
+                                    st.write(f"**{test_type} Testing:**")
+                                    
+                                    summary = test_data.get('summary', {})
+                                    vulnerabilities = summary.get('vulnerabilities_found', 0)
+                                    
+                                    if vulnerabilities > 0:
+                                        st.error(f"🚨 **{vulnerabilities} vulnerabilities found!**")
+                                        
+                                        # Show detailed results
+                                        form_tests = test_data.get('form_tests', [])
+                                        for test in form_tests:
+                                            if test.get('is_vulnerable'):
+                                                st.write(f"**Input:** {test.get('input_name', 'N/A')}")
+                                                st.write(f"**Payload:** `{test.get('payload', 'N/A')}`")
+                                                st.write(f"**Risk Level:** {test.get('risk_level', 'N/A')}")
+                                                if test.get('response_snippet'):
+                                                    st.write(f"**Response:** {test.get('response_snippet', '')[:200]}...")
+                                                st.divider()
+                                    else:
+                                        st.success(f"✅ No {test_type} vulnerabilities found")
+                                    
+                                    st.divider()
                 
                 # Generate reports
                 st.subheader("📄 Export Reports")
