@@ -68,24 +68,41 @@ def run_page_smoke(
 
             # Collect console messages
             def handle_console(msg):
-                if msg.type() == "error":
+                # Playwright API berubah antar versi (method vs properti)
+                # Ambil nilai dengan aman baik jika callable maupun atribut biasa
+                msg_type_attr = getattr(msg, "type", None)
+                msg_text_attr = getattr(msg, "text", None)
+                msg_location_attr = getattr(msg, "location", None)
+
+                message_type = msg_type_attr() if callable(msg_type_attr) else msg_type_attr
+                message_text = msg_text_attr() if callable(msg_text_attr) else msg_text_attr
+                message_location = (
+                    msg_location_attr() if callable(msg_location_attr) else msg_location_attr
+                )
+
+                if message_type == "error":
                     result["console_errors"].append({
-                        "text": msg.text(),
-                        "type": msg.type(),
-                        "location": msg.location if hasattr(msg, 'location') else None
+                        "text": message_text,
+                        "type": message_type,
+                        "location": message_location
                     })
-                elif msg.type() == "warning":
-                    result["console_warnings"].append(msg.text())
+                elif message_type == "warning":
+                    result["console_warnings"].append(message_text)
             
             page.on("console", handle_console)
             
             # Collect failed requests
             def handle_request_failed(req):
+                # Normalisasi akses properti vs metode antar versi Playwright
+                def val(obj, name):
+                    attr = getattr(obj, name, None)
+                    return attr() if callable(attr) else attr
+
                 result["network_failures"].append({
-                    "url": req.url,
-                    "method": req.method,
-                    "resource_type": req.resource_type,
-                    "failure": req.failure
+                    "url": val(req, "url"),
+                    "method": val(req, "method"),
+                    "resource_type": val(req, "resource_type"),
+                    "failure": val(req, "failure"),
                 })
             
             page.on("requestfailed", handle_request_failed)
@@ -110,7 +127,19 @@ def run_page_smoke(
             page.wait_for_timeout(1000)
 
             # Basic assertions
-            title = page.title()
+            try:
+                title = page.title()
+            except TypeError:
+                # Beberapa versi wrapper dapat mengekspos title sebagai properti/string
+                try:
+                    title_attr = getattr(page, "title", "")
+                    title = title_attr if isinstance(title_attr, str) else ""
+                except Exception:
+                    # Fallback terakhir via DOM
+                    try:
+                        title = page.evaluate("() => document.title")
+                    except Exception:
+                        title = ""
             result["assertions"].append({
                 "assert": "title_not_empty",
                 "pass": bool(title and title.strip()),
@@ -193,7 +222,19 @@ def run_page_smoke(
             # Save page HTML
             html_path = os.path.join(out_dir, "page.html")
             with open(html_path, 'w', encoding='utf-8') as f:
-                f.write(page.content())
+                try:
+                    f.write(page.content())
+                except TypeError:
+                    # Antisipasi jika content terekspos sebagai properti/string
+                    content_attr = getattr(page, "content", None)
+                    if isinstance(content_attr, str):
+                        f.write(content_attr)
+                    else:
+                        try:
+                            html = page.evaluate("() => document.documentElement.outerHTML")
+                            f.write(html or "")
+                        except Exception:
+                            f.write("")
             
             logger.info(f"✓ Test complete: {url} - {result['status']}")
 
