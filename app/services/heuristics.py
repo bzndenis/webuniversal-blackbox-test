@@ -414,6 +414,138 @@ def fill_form(
     return result
 
 
+def save_session_state(page: Page) -> Dict[str, Any]:
+    """
+    Simpan state session untuk persistence.
+    
+    Args:
+        page: Playwright page object
+        
+    Returns:
+        Dictionary berisi session state
+    """
+    try:
+        session_state = {
+            'cookies': page.context.cookies(),
+            'local_storage': page.evaluate('() => Object.fromEntries(Object.entries(localStorage))'),
+            'session_storage': page.evaluate('() => Object.fromEntries(Object.entries(sessionStorage))'),
+            'url': page.url
+        }
+        logger.info(f"Session state saved: {len(session_state['cookies'])} cookies")
+        return session_state
+    except Exception as e:
+        logger.warning(f"Failed to save session state: {e}")
+        return {}
+
+
+def restore_session_state(page: Page, session_state: Dict[str, Any]) -> bool:
+    """
+    Pulihkan state session dari yang tersimpan.
+    
+    Args:
+        page: Playwright page object
+        session_state: Dictionary berisi session state
+        
+    Returns:
+        True jika berhasil, False jika gagal
+    """
+    try:
+        if 'cookies' in session_state:
+            page.context.add_cookies(session_state['cookies'])
+            logger.info(f"Session cookies restored: {len(session_state['cookies'])} cookies")
+        
+        if 'local_storage' in session_state:
+            for key, value in session_state['local_storage'].items():
+                page.evaluate(f'localStorage.setItem("{key}", "{value}")')
+            logger.info(f"Local storage restored: {len(session_state['local_storage'])} items")
+        
+        if 'session_storage' in session_state:
+            for key, value in session_state['session_storage'].items():
+                page.evaluate(f'sessionStorage.setItem("{key}", "{value}")')
+            logger.info(f"Session storage restored: {len(session_state['session_storage'])} items")
+        
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to restore session state: {e}")
+        return False
+
+
+def check_session_validity(page: Page) -> bool:
+    """
+    Periksa apakah session masih valid dengan mengecek indikator login.
+    
+    Args:
+        page: Playwright page object
+        
+    Returns:
+        True jika session masih valid, False jika perlu login ulang
+    """
+    try:
+        current_url = page.url.lower()
+        
+        # Cek URL untuk indikator login
+        login_url_indicators = [
+            '/login', '/signin', '/auth', '/masuk', '/admin/login',
+            'login', 'signin', 'authentication'
+        ]
+        
+        if any(indicator in current_url for indicator in login_url_indicators):
+            logger.warning(f"Session invalid - current URL indicates login page: {current_url}")
+            return False
+        
+        # Cek apakah ada indikator yang menunjukkan user sudah login
+        login_indicators = [
+            'a[href*="logout"]',
+            'button:has-text("Logout")',
+            'a:has-text("Logout")',
+            '.user-menu',
+            '.profile-menu',
+            '[class*="user"]',
+            '[class*="profile"]',
+            '.admin-menu',
+            '.dashboard-menu'
+        ]
+        
+        for indicator in login_indicators:
+            if page.locator(indicator).count() > 0:
+                logger.info(f"Session valid - found login indicator: {indicator}")
+                return True
+        
+        # Cek apakah ada indikator yang menunjukkan user belum login
+        logout_indicators = [
+            'a[href*="login"]',
+            'button:has-text("Login")',
+            'a:has-text("Login")',
+            'input[type="password"]',
+            'form[action*="login"]',
+            'input[name*="password"]',
+            'input[id*="password"]'
+        ]
+        
+        for indicator in logout_indicators:
+            if page.locator(indicator).count() > 0:
+                logger.warning(f"Session invalid - found logout indicator: {indicator}")
+                return False
+        
+        # Cek cookies untuk session
+        try:
+            cookies = page.context.cookies()
+            session_cookies = [c for c in cookies if 'session' in c.get('name', '').lower() or 'auth' in c.get('name', '').lower()]
+            if session_cookies:
+                logger.info(f"Session valid - found {len(session_cookies)} session cookies")
+                return True
+        except Exception as e:
+            logger.debug(f"Could not check cookies: {e}")
+        
+        # Jika tidak ada indikator yang jelas, anggap session valid
+        logger.info("Session status unclear - assuming valid")
+        return True
+        
+    except Exception as e:
+        logger.warning(f"Failed to check session validity: {e}")
+        return True  # Default to valid if check fails
+
+
 def test_form_submission(
     page: Page,
     form_index: int = 0,
@@ -450,6 +582,56 @@ def test_form_submission(
     }
     
     try:
+        # Simpan session state sebelum form testing
+        session_state = save_session_state(page)
+        result['session_state_saved'] = bool(session_state)
+        
+        # Cek session timeout dan warning jika perlu
+        try:
+            session_timeout = page.evaluate("""
+                () => {
+                    // Cek session timeout dari berbagai sumber
+                    const sources = [
+                        localStorage.getItem('sessionTimeout'),
+                        sessionStorage.getItem('sessionTimeout'),
+                        localStorage.getItem('authTimeout'),
+                        sessionStorage.getItem('authTimeout'),
+                        localStorage.getItem('sessionExpiry'),
+                        sessionStorage.getItem('sessionExpiry')
+                    ];
+                    
+                    for (let source of sources) {
+                        if (source) {
+                            const timeout = parseInt(source);
+                            if (!isNaN(timeout) && timeout > 0) {
+                                return timeout;
+                            }
+                        }
+                    }
+                    return null;
+                }
+            """)
+            
+            if session_timeout:
+                logger.info(f"Session timeout detected: {session_timeout} minutes")
+                result['session_timeout'] = session_timeout
+                
+                # Warning jika session timeout terlalu pendek
+                if session_timeout < 30:
+                    logger.warning(f"Session timeout is very short: {session_timeout} minutes - may cause session loss")
+                    result['warnings'] = result.get('warnings', [])
+                    result['warnings'].append(f"Session timeout is very short: {session_timeout} minutes")
+        except Exception as e:
+            logger.debug(f"Could not check session timeout: {e}")
+        
+        # Periksa session validity sebelum form testing
+        session_valid = check_session_validity(page)
+        if not session_valid:
+            logger.warning("Session invalid - form submission may cause login redirect")
+            result['errors'].append("Session invalid - form submission may cause login redirect")
+            result['success'] = False
+            return result
+        
         # Ambil screenshot sebelum test dan simpan ke file jika out_dir tersedia
         if out_dir:
             try:
@@ -470,7 +652,7 @@ def test_form_submission(
         
         # Check if we're in safe mode to avoid session loss
         if safe_mode:
-            logger.info("Safe mode enabled - only testing form filling, skipping submission to avoid session loss")
+            logger.info("🛡️ SAFE MODE ACTIVE - Form filling only, no submission")
             
             # Take screenshot after form filling (before submission)
             if out_dir:
@@ -486,7 +668,51 @@ def test_form_submission(
             result['submitted'] = False
             result['safe_mode'] = True
             result['message'] = "Form filled successfully in safe mode (submission skipped to preserve session)"
+            logger.info("🛡️ SAFE MODE: Returning result without form submission")
             return result
+        
+        # Double check session validity before form submission (even in non-safe mode)
+        session_still_valid = check_session_validity(page)
+        if not session_still_valid:
+            logger.warning("Session became invalid before form submission - switching to safe mode")
+            result['success'] = True
+            result['submitted'] = False
+            result['safe_mode'] = True
+            result['message'] = "Form filled successfully (submission skipped due to invalid session)"
+            return result
+        
+        # Additional session validation - cek cookies dan localStorage
+        try:
+            # Cek apakah ada session cookies yang valid
+            cookies = page.context.cookies()
+            session_cookies = [c for c in cookies if 'session' in c.get('name', '').lower() or 'auth' in c.get('name', '').lower()]
+            
+            if not session_cookies:
+                logger.warning("No session cookies found - form submission may cause login redirect")
+                result['warnings'] = result.get('warnings', [])
+                result['warnings'].append("No session cookies found - form submission may cause login redirect")
+            
+            # Cek localStorage untuk session data
+            session_data = page.evaluate("""
+                () => {
+                    const sessionKeys = ['session', 'auth', 'token', 'user', 'login'];
+                    const found = [];
+                    for (let key of sessionKeys) {
+                        if (localStorage.getItem(key) || sessionStorage.getItem(key)) {
+                            found.push(key);
+                        }
+                    }
+                    return found;
+                }
+            """)
+            
+            if not session_data:
+                logger.warning("No session data found in localStorage/sessionStorage - form submission may cause login redirect")
+                result['warnings'] = result.get('warnings', [])
+                result['warnings'].append("No session data found - form submission may cause login redirect")
+            
+        except Exception as e:
+            logger.debug(f"Could not check session data: {e}")
         
         # If form was already submitted in fill_form, we're done
         if fill_result.get('submitted'):
@@ -513,6 +739,18 @@ def test_form_submission(
         
         # Submit form only if not already submitted
         if not result.get('submitted', False):
+            logger.info("Form not yet submitted, attempting submission...")
+            
+            # Final session check sebelum submission
+            final_session_check = check_session_validity(page)
+            if not final_session_check:
+                logger.warning("Final session check failed - aborting form submission to prevent login redirect")
+                result['success'] = True
+                result['submitted'] = False
+                result['safe_mode'] = True
+                result['message'] = "Form submission aborted to prevent login redirect (session invalid)"
+                return result
+            
             try:
                 forms = page.locator('form')
                 form_count = forms.count()
@@ -603,9 +841,139 @@ def test_form_submission(
         is_login_redirect = any(indicator in current_url for indicator in login_indicators)
         result['redirected_to_login'] = is_login_redirect
         
+        # Double check session validity after form submission
+        if not is_login_redirect:
+            session_still_valid = check_session_validity(page)
+            if not session_still_valid:
+                logger.warning("Session became invalid after form submission")
+                result['errors'].append("Session became invalid after form submission")
+                result['success'] = False
+                return result
+        else:
+            # Jika redirect ke login, coba deteksi penyebabnya
+            logger.info("Analyzing login redirect causes...")
+            
+            # Cek apakah ada error message yang menunjukkan penyebab
+            error_selectors = [
+                '.error', '.alert-danger', '.invalid-feedback', '.is-invalid', 
+                '[role="alert"]', '.error-message', '.field-error', '.validation-error',
+                '.form-error', '.input-error', '.session-error', '.auth-error',
+                '.login-error', '.timeout-error', '.expired-error'
+            ]
+            
+            error_found = False
+            for selector in error_selectors:
+                error_messages = page.locator(selector)
+                if error_messages.count() > 0:
+                    for i in range(min(error_messages.count(), 3)):
+                        error_text = error_messages.nth(i).text_content()
+                        if error_text and error_text.strip():
+                            logger.info(f"Error message found with selector '{selector}': {error_text.strip()}")
+                            result['login_redirect_reason'] = error_text.strip()
+                            error_found = True
+                            break
+                if error_found:
+                    break
+            
+            # Jika tidak ada error message, cek URL dan content untuk indikator
+            if not error_found:
+                current_url = page.url.lower()
+                page_content = page.content().lower()
+                
+                # Cek indikator session timeout
+                timeout_indicators = [
+                    'session expired', 'session timeout', 'session invalid',
+                    'login expired', 'authentication expired', 'token expired',
+                    'sesi berakhir', 'sesi expired', 'waktu habis'
+                ]
+                
+                for indicator in timeout_indicators:
+                    if indicator in page_content:
+                        logger.info(f"Session timeout indicator found: {indicator}")
+                        result['login_redirect_reason'] = f"Session timeout: {indicator}"
+                        error_found = True
+                        break
+                
+                # Cek indikator authentication error
+                if not error_found:
+                    auth_indicators = [
+                        'authentication required', 'login required', 'unauthorized',
+                        'access denied', 'permission denied', 'not authenticated',
+                        'harus login', 'perlu login', 'akses ditolak'
+                    ]
+                    
+                    for indicator in auth_indicators:
+                        if indicator in page_content:
+                            logger.info(f"Authentication error indicator found: {indicator}")
+                            result['login_redirect_reason'] = f"Authentication error: {indicator}"
+                            error_found = True
+                            break
+                
+                # Cek URL untuk indikator
+                if not error_found:
+                    if 'timeout' in current_url:
+                        result['login_redirect_reason'] = "Session timeout detected in URL"
+                    elif 'expired' in current_url:
+                        result['login_redirect_reason'] = "Session expired detected in URL"
+                    elif 'unauthorized' in current_url:
+                        result['login_redirect_reason'] = "Unauthorized access detected in URL"
+                    else:
+                        result['login_redirect_reason'] = "Redirect to login page - no specific error message found"
+        
         if is_login_redirect:
             logger.warning(f"Form submission redirected to login page: {page.url}")
-            result['errors'].append("Form submission caused redirect to login page - possible session loss")
+            
+            # Coba pulihkan session state jika tersimpan
+            if session_state:
+                logger.info("Attempting to restore session state...")
+                restore_success = restore_session_state(page, session_state)
+                if restore_success:
+                    logger.info("Session state restored successfully")
+                    result['session_restored'] = True
+                    # Coba navigasi kembali ke halaman asli
+                    try:
+                        page.goto(initial_url, wait_until="load", timeout=5000)
+                        logger.info(f"Navigated back to original page: {initial_url}")
+                    except Exception as e:
+                        logger.warning(f"Failed to navigate back to original page: {e}")
+                else:
+                    logger.warning("Failed to restore session state")
+                    result['session_restored'] = False
+            
+            # Analisis penyebab redirect ke login
+            redirect_reason = result.get('login_redirect_reason', 'Unknown')
+            logger.info(f"Login redirect reason: {redirect_reason}")
+            
+            # Coba deteksi penyebab yang lebih spesifik
+            if redirect_reason == 'Unknown':
+                # Cek apakah ada indikator session timeout di halaman
+                try:
+                    timeout_indicators = page.evaluate("""
+                        () => {
+                            const indicators = [
+                                'session expired', 'session timeout', 'login expired',
+                                'authentication expired', 'token expired', 'sesi berakhir',
+                                'waktu habis', 'session invalid', 'login required'
+                            ];
+                            
+                            const pageText = document.body.innerText.toLowerCase();
+                            for (let indicator of indicators) {
+                                if (pageText.includes(indicator)) {
+                                    return indicator;
+                                }
+                            }
+                            return null;
+                        }
+                    """)
+                    
+                    if timeout_indicators:
+                        redirect_reason = f"Session timeout detected: {timeout_indicators}"
+                        result['login_redirect_reason'] = redirect_reason
+                        logger.info(f"Enhanced redirect reason: {redirect_reason}")
+                except Exception as e:
+                    logger.debug(f"Could not detect timeout indicators: {e}")
+            
+            result['errors'].append(f"Form submission caused redirect to login page - possible session loss. Reason: {redirect_reason}")
             result['success'] = False
             return result
         
@@ -782,6 +1150,29 @@ def perform_login(
             page.wait_for_load_state("networkidle", timeout=timeout_ms)
         except Exception:
             page.wait_for_timeout(1000)
+        
+        # Simpan session/cookies untuk persistence
+        try:
+            # Simpan cookies ke context untuk session persistence
+            cookies = page.context.cookies()
+            logger.info(f"Session cookies saved: {len(cookies)} cookies")
+            
+            # Simpan session timeout information
+            session_timeout = page.evaluate("""
+                () => {
+                    // Cek session timeout dari localStorage atau sessionStorage
+                    const sessionTimeout = localStorage.getItem('sessionTimeout') || 
+                                         sessionStorage.getItem('sessionTimeout') ||
+                                         localStorage.getItem('authTimeout') ||
+                                         sessionStorage.getItem('authTimeout');
+                    return sessionTimeout ? parseInt(sessionTimeout) : null;
+                }
+            """)
+            
+            if session_timeout:
+                logger.info(f"Session timeout detected: {session_timeout} minutes")
+        except Exception as e:
+            logger.warning(f"Failed to save session cookies: {e}")
 
         # Verifikasi sukses login bila ada indikator
         if success_indicator:

@@ -619,6 +619,9 @@ with tab1:
                     os.makedirs(page_dir, exist_ok=True)
                     
                     # Run smoke test
+                    form_safe_mode_value = st.session_state.get("form_safe_mode", True)
+                    logger.info(f"Form safe mode from session state: {form_safe_mode_value}")
+                    
                     result = run_page_smoke(
                         url=url,
                         out_dir=page_dir,
@@ -626,7 +629,7 @@ with tab1:
                         headless=headless,
                         deep_component_test=deep_component_test,
                         test_forms=test_forms,
-                        form_safe_mode=st.session_state.get("form_safe_mode", True),
+                        form_safe_mode=form_safe_mode_value,
                         auth=auth_config
                     )
                     
