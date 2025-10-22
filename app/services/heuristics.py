@@ -234,17 +234,21 @@ def fill_form(
 
 def test_form_submission(
     page: Page,
-    form_index: int = 0
+    form_index: int = 0,
+    timeout_ms: int = 5000,
+    out_dir: str = None
 ) -> Dict[str, Any]:
     """
-    Test form submission in sandbox mode.
+    Test form submission dengan validasi yang lebih komprehensif.
     
     Args:
         page: Playwright page object
         form_index: Index of form to test
+        timeout_ms: Timeout untuk menunggu response
+        out_dir: Directory untuk menyimpan screenshot (optional)
         
     Returns:
-        Test result dictionary
+        Test result dictionary dengan detail yang lebih lengkap
     """
     result = {
         'success': False,
@@ -252,10 +256,25 @@ def test_form_submission(
         'response_status': None,
         'has_error_message': False,
         'has_success_message': False,
-        'errors': []
+        'redirected': False,
+        'url_changed': False,
+        'form_validation_errors': [],
+        'network_errors': [],
+        'errors': [],
+        'screenshot_before_path': None,
+        'screenshot_after_path': None
     }
     
     try:
+        # Ambil screenshot sebelum test dan simpan ke file jika out_dir tersedia
+        if out_dir:
+            try:
+                before_path = os.path.join(out_dir, "form_before.png")
+                page.screenshot(path=before_path, full_page=True)
+                result['screenshot_before_path'] = before_path
+            except Exception:
+                pass
+        
         # Fill the form
         fill_result = fill_form(page, form_index, submit=False)
         result['fill_result'] = fill_result
@@ -264,48 +283,122 @@ def test_form_submission(
             result['errors'].append("No fields were filled")
             return result
         
-        # Take screenshot before submit
+        # Simpan URL awal
         initial_url = page.url
+        
+        # Monitor network requests untuk error
+        network_errors = []
+        def handle_request_failed(request):
+            network_errors.append({
+                'url': request.url,
+                'method': request.method,
+                'failure': str(request.failure)
+            })
+        
+        page.on("requestfailed", handle_request_failed)
         
         # Submit form
         forms = page.locator('form')
+        if forms.count() <= form_index:
+            result['errors'].append(f"Form index {form_index} not found")
+            return result
+            
         form = forms.nth(form_index)
         submit_button = form.locator('button[type="submit"], input[type="submit"]').first
         
         if submit_button.count() > 0:
+            # Submit form
             submit_button.click()
-            page.wait_for_timeout(2000)  # Wait for response
             
-            # Check for common error indicators
-            error_selectors = [
-                '.error', '.alert-danger', '.invalid-feedback',
-                '[role="alert"]', '.error-message'
+            # Wait for response dengan timeout
+            try:
+                page.wait_for_load_state("networkidle", timeout=timeout_ms)
+            except Exception:
+                # Fallback jika networkidle timeout
+                page.wait_for_timeout(2000)
+            
+            # Simpan screenshot setelah submit ke file jika out_dir tersedia
+            if out_dir:
+                try:
+                    after_path = os.path.join(out_dir, "form_after.png")
+                    page.screenshot(path=after_path, full_page=True)
+                    result['screenshot_after_path'] = after_path
+                except Exception:
+                    pass
+            
+            # Check URL change
+            result['url_changed'] = page.url != initial_url
+            result['redirected'] = result['url_changed']
+            
+            # Check for validation errors (lebih comprehensive)
+            validation_error_selectors = [
+                '.error', '.alert-danger', '.invalid-feedback', '.is-invalid',
+                '[role="alert"]', '.error-message', '.field-error',
+                '.validation-error', '.form-error', '.input-error',
+                '[class*="error"]', '[class*="invalid"]'
             ]
-            for selector in error_selectors:
-                if page.locator(selector).count() > 0:
-                    result['has_error_message'] = True
-                    break
             
-            # Check for success indicators
+            for selector in validation_error_selectors:
+                elements = page.locator(selector)
+                if elements.count() > 0:
+                    for i in range(min(elements.count(), 5)):  # Limit to 5 errors
+                        error_text = elements.nth(i).text_content()
+                        if error_text and error_text.strip():
+                            result['form_validation_errors'].append({
+                                'selector': selector,
+                                'text': error_text.strip()[:200]  # Limit text length
+                            })
+                    result['has_error_message'] = True
+            
+            # Check for success indicators (lebih comprehensive)
             success_selectors = [
                 '.success', '.alert-success', '.success-message',
-                '[role="status"]'
+                '[role="status"]', '.form-success', '.submission-success',
+                '.thank-you', '.confirmation', '[class*="success"]'
             ]
+            
             for selector in success_selectors:
-                if page.locator(selector).count() > 0:
-                    result['has_success_message'] = True
-                    break
+                elements = page.locator(selector)
+                if elements.count() > 0:
+                    for i in range(min(elements.count(), 3)):  # Limit to 3 success messages
+                        success_text = elements.nth(i).text_content()
+                        if success_text and success_text.strip():
+                            result['has_success_message'] = True
+                            break
+                    if result['has_success_message']:
+                        break
             
-            # Check if URL changed (redirect after submit)
-            if page.url != initial_url:
-                result['redirected'] = True
+            # Check for common success indicators in text
+            page_content = page.content()
+            success_indicators = [
+                'thank you', 'success', 'submitted', 'received',
+                'confirmation', 'complete', 'done'
+            ]
             
-            result['success'] = True
+            if any(indicator in page_content.lower() for indicator in success_indicators):
+                result['has_success_message'] = True
+            
+            # Simpan network errors
+            result['network_errors'] = network_errors
+            
+            # Determine overall success
+            if result['has_error_message'] or network_errors:
+                result['success'] = False
+            elif result['has_success_message'] or result['redirected']:
+                result['success'] = True
+            else:
+                # Ambiguous case - check if form is still there (might indicate failure)
+                remaining_forms = page.locator('form').count()
+                if remaining_forms == 0:
+                    result['success'] = True  # Form disappeared, likely successful
+                else:
+                    result['success'] = False  # Form still there, might have failed
         else:
             result['errors'].append("No submit button found")
     
     except Exception as e:
         result['errors'].append(f"Form test error: {str(e)}")
+        logger.error(f"Form submission test failed: {e}")
     
     return result
 

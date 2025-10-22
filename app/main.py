@@ -338,19 +338,41 @@ with st.sidebar:
 
     # Authentication
     st.subheader("Authentication")
+    def on_auth_enabled_change():
+        st.session_state.auth_enabled = st.session_state.auth_enabled
+        save_config_to_file()
+        logger.info(f"Auth enabled changed to: {st.session_state.auth_enabled}")
+    
     auth_enabled = st.checkbox(
         "Require Login", 
         value=st.session_state.auth_enabled, 
         help="Login sebelum test dijalankan",
-        key="auth_enabled"
+        key="auth_enabled",
+        on_change=on_auth_enabled_change
     )
+    
+    def on_login_url_change():
+        st.session_state.login_url = st.session_state.auth_login_url
+        save_config_to_file()
+        logger.info(f"Login URL changed to: '{st.session_state.auth_login_url}'")
     
     login_url = st.text_input(
         "Login URL", 
         value=st.session_state.login_url, 
         help="Halaman login",
-        key="auth_login_url"
+        key="auth_login_url",
+        on_change=on_login_url_change
     )
+    
+    def on_auth_username_change():
+        st.session_state.auth_username = st.session_state.auth_username
+        save_config_to_file()
+        logger.info(f"Auth username changed to: '{st.session_state.auth_username}'")
+    
+    def on_auth_password_change():
+        st.session_state.auth_password = st.session_state.auth_password
+        save_config_to_file()
+        logger.info("Auth password changed")
     
     col_auth1, col_auth2 = st.columns(2)
     with col_auth1:
@@ -358,21 +380,29 @@ with st.sidebar:
             "Username/Email", 
             value=st.session_state.auth_username, 
             help="Kredensial login",
-            key="auth_username"
+            key="auth_username",
+            on_change=on_auth_username_change
         )
     with col_auth2:
         auth_password = st.text_input(
             "Password", 
             value=st.session_state.auth_password, 
             type="password",
-            key="auth_password"
+            key="auth_password",
+            on_change=on_auth_password_change
         )
+    
+    def on_success_indicator_change():
+        st.session_state.success_indicator = st.session_state.auth_success_indicator
+        save_config_to_file()
+        logger.info(f"Success Indicator changed to: '{st.session_state.auth_success_indicator}'")
     
     success_indicator = st.text_input(
         "Success Indicator (CSS atau teks)",
         value=st.session_state.success_indicator,
         help="Misal: #dashboard atau teks 'Dashboard'",
-        key="auth_success_indicator"
+        key="auth_success_indicator",
+        on_change=on_success_indicator_change
     )
     
     auth_config = None
@@ -424,9 +454,17 @@ with st.sidebar:
     if 'last_auth_config' not in st.session_state:
         st.session_state.last_auth_config = ""
     
-    current_auth_config = f"{auth_enabled}_{login_url}_{auth_username}_{auth_password}_{success_indicator}"
+    # Get current values from session state (not from variables)
+    current_auth_enabled = st.session_state.get("auth_enabled", False)
+    current_login_url = st.session_state.get("login_url", "")
+    current_auth_username = st.session_state.get("auth_username", "")
+    current_auth_password = st.session_state.get("auth_password", "")
+    current_success_indicator = st.session_state.get("success_indicator", "")
+    
+    current_auth_config = f"{current_auth_enabled}_{current_login_url}_{current_auth_username}_{current_auth_password}_{current_success_indicator}"
     
     if current_auth_config != st.session_state.last_auth_config:
+        logger.info(f"Auth config changed, saving... Login URL: '{current_login_url}', Success Indicator: '{current_success_indicator}'")
         save_config_to_file()
         st.session_state.last_auth_config = current_auth_config
 
@@ -578,27 +616,11 @@ with tab1:
                         timeout=timeout * 1000,
                         headless=headless,
                         deep_component_test=deep_component_test,
+                        test_forms=test_forms,
                         auth=auth_config
                     )
                     
-                    # Test forms if enabled
-                    if test_forms and result.get('forms_found', 0) > 0:
-                        try:
-                            from playwright.sync_api import sync_playwright
-                            with sync_playwright() as p:
-                                browser = p.chromium.launch(headless=headless)
-                                context = browser.new_context()
-                                page = context.new_page()
-                                page.goto(url, timeout=timeout * 1000)
-                                
-                                form_result = test_form_submission(page, 0)
-                                result['form_test'] = form_result
-                                result['forms_tested'] = 1 if form_result['success'] else 0
-                                
-                                context.close()
-                                browser.close()
-                        except Exception as e:
-                            logger.error(f"Form test error: {e}")
+                    # Form testing is now handled in run_page_smoke with test_forms parameter
                     
                     results.append(result)
                     

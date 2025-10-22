@@ -21,12 +21,40 @@ logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT = 10000
 
 
+def clean_for_json(data):
+    """
+    Clean data untuk JSON serialization dengan menghapus bytes dan objek yang tidak bisa di-serialize.
+    
+    Args:
+        data: Dictionary atau data yang akan dibersihkan
+        
+    Returns:
+        Data yang sudah dibersihkan untuk JSON serialization
+    """
+    if isinstance(data, dict):
+        cleaned = {}
+        for key, value in data.items():
+            if isinstance(value, bytes):
+                # Skip bytes data
+                continue
+            elif isinstance(value, (dict, list)):
+                cleaned[key] = clean_for_json(value)
+            else:
+                cleaned[key] = value
+        return cleaned
+    elif isinstance(data, list):
+        return [clean_for_json(item) for item in data if not isinstance(item, bytes)]
+    else:
+        return data
+
+
 def run_page_smoke(
     url: str,
     out_dir: str,
     timeout: int = DEFAULT_TIMEOUT,
     headless: bool = True,
     deep_component_test: bool = False,
+    test_forms: bool = False,
     auth: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
@@ -38,6 +66,8 @@ def run_page_smoke(
         timeout: Timeout dalam ms (default: 10000)
         headless: Run browser in headless mode (default: True)
         deep_component_test: Run comprehensive component testing (default: False)
+        test_forms: Test form submission (default: False)
+        auth: Authentication configuration (optional)
         
     Returns:
         Dictionary berisi hasil test lengkap
@@ -261,6 +291,23 @@ def run_page_smoke(
                 component_report_path = os.path.join(out_dir, "component_test.json")
                 with open(component_report_path, 'w', encoding='utf-8') as f:
                     json.dump(component_results, f, indent=2, ensure_ascii=False)
+            
+            # Form Testing (jika diaktifkan dan ada form)
+            if test_forms and result.get('forms_found', 0) > 0:
+                try:
+                    from app.services.heuristics import test_form_submission
+                    logger.info(f"Testing form submission for: {url}")
+                    form_result = test_form_submission(page, 0, timeout_ms=timeout, out_dir=out_dir)
+                    
+                    # Form testing screenshots are handled in test_form_submission function
+                    # and saved to files, not stored as bytes in result
+                    
+                    result['form_test'] = form_result
+                    result['forms_tested'] = 1 if form_result['success'] else 0
+                        
+                except Exception as e:
+                    logger.error(f"Form test error: {e}")
+                    result['form_test_error'] = str(e)
 
             # Screenshot
             screenshot_path = os.path.join(out_dir, "screenshot.png")
@@ -297,10 +344,11 @@ def run_page_smoke(
         logger.error(f"✗ Error testing {url}: {type(e).__name__}")
         logger.error(f"Full traceback:\n{error_detail}")
     
-    # Save result as JSON
+    # Save result as JSON (clean data first)
     result_path = os.path.join(out_dir, "result.json")
+    cleaned_result = clean_for_json(result)
     with open(result_path, 'w', encoding='utf-8') as f:
-        json.dump(result, f, indent=2, ensure_ascii=False)
+        json.dump(cleaned_result, f, indent=2, ensure_ascii=False)
     
     return result
 

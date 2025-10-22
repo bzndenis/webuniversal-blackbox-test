@@ -1,0 +1,33 @@
+base_url: https://example.com
+scenarios:
+- name: Homepage basic check
+  steps:
+  - action: goto
+    url: /
+  - action: expect_title
+    contains: Example
+  - action: expect_text
+    selector: h1
+    contains: Example
+  - action: screenshot
+    path: homepage.png
+- name: Link navigation test
+  steps:
+  - action: goto
+    url: /
+  - action: click
+    selector: a
+  - action: expect_status
+    in:
+    - 200
+    - 301
+    - 302
+  - action: screenshot
+    path: after_click.png
+auth:
+  enabled: false
+  url: https://example.com/login
+  credentials:
+    username: user@example.com
+    password: secret
+  success_indicator: '#dashboard, text=Dashboard'

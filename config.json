@@ -1,5 +1,5 @@
 {
-  "test_mode": "Crawler Mode",
+  "test_mode": "Single Page",
   "base_url": "https://example.com",
   "max_depth": 2,
   "max_pages": 10,
@@ -11,9 +11,9 @@
   "deep_component_test": true,
   "test_forms": true,
   "auth_enabled": true,
-  "login_url": "",
+  "login_url": "https://jdih.kemenlh.go.id/admin/login",
   "auth_username": "admin@kemenlh.go.id",
   "auth_password": "password",
-  "success_indicator": "",
-  "last_saved": "2025-10-22T20:35:08.016305"
+  "success_indicator": "Dashboard",
+  "last_saved": "2025-10-22T20:54:13.491742"
 }
