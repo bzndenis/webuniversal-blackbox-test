@@ -38,6 +38,7 @@ import streamlit as st
 from datetime import datetime
 from pathlib import Path
 import logging
+import json
 
 # Configure logging EARLY
 logging.basicConfig(
@@ -93,6 +94,86 @@ st.set_page_config(
 # Initialize database
 init_db()
 
+# Configuration file path
+CONFIG_FILE = "config.json"
+
+def save_config_to_file():
+    """Save current configuration to JSON file."""
+    config = {
+        "test_mode": st.session_state.get("test_mode", "Single Page"),
+        "base_url": st.session_state.get("base_url", "https://example.com"),
+        "max_depth": st.session_state.get("max_depth", 2),
+        "max_pages": st.session_state.get("max_pages", 10),
+        "same_origin": st.session_state.get("same_origin", True),
+        "include_pattern": st.session_state.get("include_pattern", ""),
+        "exclude_pattern": st.session_state.get("exclude_pattern", ""),
+        "headless": st.session_state.get("headless", True),
+        "timeout": st.session_state.get("timeout", 10),
+        "deep_component_test": st.session_state.get("deep_component_test", True),
+        "test_forms": st.session_state.get("test_forms", False),
+        "auth_enabled": st.session_state.get("auth_enabled", False),
+        "login_url": st.session_state.get("login_url", ""),
+        "auth_username": st.session_state.get("auth_username", ""),
+        "auth_password": st.session_state.get("auth_password", ""),
+        "success_indicator": st.session_state.get("success_indicator", ""),
+        "last_saved": datetime.now().isoformat()
+    }
+    
+    try:
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+        logger.info("Configuration saved to file")
+    except Exception as e:
+        logger.error(f"Failed to save config: {e}")
+
+def load_config_from_file():
+    """Load configuration from JSON file."""
+    try:
+        if os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            logger.info("Configuration loaded from file")
+            return config
+    except Exception as e:
+        logger.error(f"Failed to load config: {e}")
+    return None
+
+# Initialize session state for configuration persistence
+def init_session_state():
+    """Initialize session state with default values or load from file."""
+    # Try to load from file first
+    saved_config = load_config_from_file()
+    
+    # Default values
+    defaults = {
+        'test_mode': "Single Page",
+        'base_url': "https://example.com",
+        'max_depth': 2,
+        'max_pages': 10,
+        'same_origin': True,
+        'include_pattern': "",
+        'exclude_pattern': "",
+        'headless': True,
+        'timeout': 10,
+        'deep_component_test': True,
+        'test_forms': False,
+        'auth_enabled': False,
+        'login_url': "",
+        'auth_username': "",
+        'auth_password': "",
+        'success_indicator': ""
+    }
+    
+    # Initialize session state with saved config or defaults
+    for key, default_value in defaults.items():
+        if key not in st.session_state:
+            if saved_config and key in saved_config:
+                st.session_state[key] = saved_config[key]
+            else:
+                st.session_state[key] = default_value
+
+init_session_state()
+
 # Custom CSS
 st.markdown("""
 <style>
@@ -139,7 +220,9 @@ with st.sidebar:
     test_mode = st.radio(
         "Test Mode",
         ["Crawler Mode", "YAML Scenario", "Single Page"],
-        help="Choose testing mode"
+        index=["Crawler Mode", "YAML Scenario", "Single Page"].index(st.session_state.test_mode),
+        help="Choose testing mode",
+        key="test_mode"
     )
     
     st.divider()
@@ -148,8 +231,9 @@ with st.sidebar:
         st.subheader("Crawler Settings")
         base_url = st.text_input(
             "Base URL",
-            value="https://example.com",
-            help="Starting URL for crawling"
+            value=st.session_state.base_url,
+            help="Starting URL for crawling",
+            key="crawler_base_url"
         )
         
         col1, col2 = st.columns(2)
@@ -158,34 +242,41 @@ with st.sidebar:
                 "Max Depth",
                 min_value=1,
                 max_value=5,
-                value=2,
-                help="Maximum crawling depth"
+                value=st.session_state.max_depth,
+                help="Maximum crawling depth",
+                key="crawler_max_depth"
             )
         with col2:
             max_pages = st.number_input(
                 "Max Pages",
                 min_value=1,
                 max_value=100,
-                value=10,
-                help="Maximum pages to test"
+                value=st.session_state.max_pages,
+                help="Maximum pages to test",
+                key="crawler_max_pages"
             )
         
         same_origin = st.checkbox(
             "Same Origin Only",
-            value=True,
-            help="Only crawl URLs from the same domain"
+            value=st.session_state.same_origin,
+            help="Only crawl URLs from the same domain",
+            key="crawler_same_origin"
         )
         
         with st.expander("Advanced Filters"):
             include_pattern = st.text_input(
                 "Include Pattern (regex)",
+                value=st.session_state.include_pattern,
                 placeholder="e.g., /blog/.*",
-                help="Include URLs matching this pattern"
+                help="Include URLs matching this pattern",
+                key="crawler_include_pattern"
             )
             exclude_pattern = st.text_input(
                 "Exclude Pattern (regex)",
+                value=st.session_state.exclude_pattern,
                 placeholder="e.g., /admin/.*",
-                help="Exclude URLs matching this pattern"
+                help="Exclude URLs matching this pattern",
+                key="crawler_exclude_pattern"
             )
     
     elif test_mode == "YAML Scenario":
@@ -206,48 +297,84 @@ with st.sidebar:
         st.subheader("Single Page Test")
         test_url = st.text_input(
             "Page URL",
-            value="https://example.com",
-            help="URL of the page to test"
+            value=st.session_state.base_url,
+            help="URL of the page to test",
+            key="single_page_url"
         )
     
     st.divider()
     
     # Test options
     st.subheader("Test Options")
-    headless = st.checkbox("Headless Mode", value=True)
+    headless = st.checkbox(
+        "Headless Mode", 
+        value=st.session_state.headless,
+        key="test_headless"
+    )
+    
     timeout = st.slider(
         "Timeout (seconds)",
         min_value=5,
         max_value=60,
-        value=10
+        value=st.session_state.timeout,
+        key="test_timeout"
     )
+    
     deep_component_test = st.checkbox(
         "🔍 Deep Component Test",
-        value=True,
-        help="Test semua button, form, image, dan link di halaman"
+        value=st.session_state.deep_component_test,
+        help="Test semua button, form, image, dan link di halaman",
+        key="test_deep_component"
     )
+    
     test_forms = st.checkbox(
         "Test Forms Submission (Experimental)",
-        value=False,
-        help="Automatically detect and test form submissions"
+        value=st.session_state.test_forms,
+        help="Automatically detect and test form submissions",
+        key="test_forms"
     )
 
     st.divider()
 
     # Authentication
     st.subheader("Authentication")
-    auth_enabled = st.checkbox("Require Login", value=False, help="Login sebelum test dijalankan")
-    login_url = st.text_input("Login URL", value="", help="Halaman login")
+    auth_enabled = st.checkbox(
+        "Require Login", 
+        value=st.session_state.auth_enabled, 
+        help="Login sebelum test dijalankan",
+        key="auth_enabled"
+    )
+    
+    login_url = st.text_input(
+        "Login URL", 
+        value=st.session_state.login_url, 
+        help="Halaman login",
+        key="auth_login_url"
+    )
+    
     col_auth1, col_auth2 = st.columns(2)
     with col_auth1:
-        auth_username = st.text_input("Username/Email", value="", help="Kredensial login")
+        auth_username = st.text_input(
+            "Username/Email", 
+            value=st.session_state.auth_username, 
+            help="Kredensial login",
+            key="auth_username"
+        )
     with col_auth2:
-        auth_password = st.text_input("Password", value="", type="password")
+        auth_password = st.text_input(
+            "Password", 
+            value=st.session_state.auth_password, 
+            type="password",
+            key="auth_password"
+        )
+    
     success_indicator = st.text_input(
         "Success Indicator (CSS atau teks)",
-        value="",
-        help="Misal: #dashboard atau teks 'Dashboard'"
+        value=st.session_state.success_indicator,
+        help="Misal: #dashboard atau teks 'Dashboard'",
+        key="auth_success_indicator"
     )
+    
     auth_config = None
     if auth_enabled:
         auth_config = {
@@ -259,12 +386,49 @@ with st.sidebar:
     
     st.divider()
     
-    # Run button
-    run_button = st.button(
-        "🚀 Run Test",
-        type="primary",
-        width="stretch"
-    )
+    # Configuration management
+    col_run, col_clear, col_save = st.columns([2, 1, 1])
+    with col_run:
+        run_button = st.button(
+            "🚀 Run Test",
+            type="primary",
+            width="stretch"
+        )
+    with col_clear:
+        if st.button("🗑️ Clear", help="Reset all configuration to defaults"):
+            # Clear all session state
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            # Remove config file
+            if os.path.exists(CONFIG_FILE):
+                os.remove(CONFIG_FILE)
+            st.rerun()
+    with col_save:
+        if st.button("💾 Save", help="Save current configuration to file"):
+            save_config_to_file()
+            st.success("Configuration saved!")
+    
+    # Show config status
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                config_data = json.load(f)
+            last_saved = config_data.get('last_saved', 'Unknown')
+            st.caption(f"💾 Config saved: {last_saved[:19] if last_saved != 'Unknown' else 'Unknown'}")
+        except:
+            st.caption("💾 Config file exists")
+    else:
+        st.caption("⚠️ No saved config")
+    
+    # Auto-save configuration when authentication settings change
+    if 'last_auth_config' not in st.session_state:
+        st.session_state.last_auth_config = ""
+    
+    current_auth_config = f"{auth_enabled}_{login_url}_{auth_username}_{auth_password}_{success_indicator}"
+    
+    if current_auth_config != st.session_state.last_auth_config:
+        save_config_to_file()
+        st.session_state.last_auth_config = current_auth_config
 
 # Main content area
 tab1, tab2, tab3 = st.tabs(["📊 Test Results", "📜 History", "ℹ️ About"])

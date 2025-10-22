@@ -1,0 +1,19 @@
+{
+  "test_mode": "Crawler Mode",
+  "base_url": "https://example.com",
+  "max_depth": 2,
+  "max_pages": 10,
+  "same_origin": true,
+  "include_pattern": "",
+  "exclude_pattern": "",
+  "headless": true,
+  "timeout": 10,
+  "deep_component_test": true,
+  "test_forms": true,
+  "auth_enabled": true,
+  "login_url": "",
+  "auth_username": "admin@kemenlh.go.id",
+  "auth_password": "password",
+  "success_indicator": "",
+  "last_saved": "2025-10-22T20:30:22.378737"
+}
