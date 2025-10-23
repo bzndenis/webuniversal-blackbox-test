@@ -1,5 +1,5 @@
 {
-  "test_mode": "Load Generator",
+  "test_mode": "Crawler Mode",
   "base_url": "https://example.com",
   "max_depth": 2,
   "max_pages": 10,
@@ -11,7 +11,7 @@
   "deep_component_test": true,
   "test_forms": false,
   "auth_enabled": false,
-  "login_url": "https://jdih.kemenlh.go.id/admin/login",
+  "login_url": "http://127.0.0.1:8000",
   "auth_username": "admin@kemenlh.go.id",
   "auth_password": "password",
   "success_indicator": "Dashboard",
@@ -22,7 +22,7 @@
   "stress_timeout": 30,
   "stress_actions": "",
   "load_virtual_users": 10,
-  "load_duration": 10,
+  "load_duration": 60,
   "load_ramp_up": 10,
   "load_ramp_down": 10,
   "load_think_time": 1.0,
@@ -34,5 +34,5 @@
   "load_enable_monitoring": true,
   "load_max_cpu": 80,
   "load_max_memory": 85,
-  "last_saved": "2025-10-23T01:29:04.510809"
+  "last_saved": "2025-10-23T12:19:34.122544"
 }

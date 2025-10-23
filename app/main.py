@@ -1748,106 +1748,151 @@ with tab1:
                         if 'form_test' in r and r['form_test']:
                             form_test = r['form_test']
                             
-                            with st.expander(f"📝 Form Test Results - {r['url'][:80]}..."):
+                            # Validate form_test structure
+                            if not isinstance(form_test, dict):
+                                st.error(f"❌ Invalid form test data structure for {r.get('url', 'Unknown URL')}")
+                                continue
+                            
+                            with st.expander(f"📝 Form Test Results - {r.get('url', 'Unknown URL')[:80]}..."):
                                 # Form test summary
                                 col1, col2, col3 = st.columns(3)
                                 
+                                # Safe access to form_test properties
+                                success = form_test.get('success', False) if isinstance(form_test.get('success'), bool) else False
+                                
                                 col1.metric(
                                     "Form Test Status",
-                                    "✅ Success" if form_test.get('success') else "❌ Failed",
-                                    delta="Success" if form_test.get('success') else "Failed"
+                                    "✅ Success" if success else "❌ Failed",
+                                    delta="Success" if success else "Failed"
                                 )
                                 
-                                fill_result = form_test.get('fill_result', {})
+                                # Safe access to fill_result
+                                fill_result = form_test.get('fill_result')
+                                if fill_result is None or not isinstance(fill_result, dict):
+                                    fill_result = {}
+                                
+                                fields_filled = fill_result.get('fields_filled', 0) if isinstance(fill_result.get('fields_filled'), int) else 0
+                                fields_failed = fill_result.get('fields_failed', 0) if isinstance(fill_result.get('fields_failed'), int) else 0
+                                
                                 col2.metric(
                                     "Fields Filled",
-                                    fill_result.get('fields_filled', 0),
-                                    delta=f"{fill_result.get('fields_failed', 0)} failed" if fill_result.get('fields_failed', 0) > 0 else "All OK"
+                                    fields_filled,
+                                    delta=f"{fields_failed} failed" if fields_failed > 0 else "All OK"
                                 )
                                 
+                                submitted = form_test.get('submitted', False) if isinstance(form_test.get('submitted'), bool) else False
                                 col3.metric(
                                     "Form Submitted",
-                                    "✅ Yes" if form_test.get('submitted') else "❌ No",
-                                    delta="Submitted" if form_test.get('submitted') else "Not Submitted"
+                                    "✅ Yes" if submitted else "❌ No",
+                                    delta="Submitted" if submitted else "Not Submitted"
                                 )
                                 
                                 # Form test details
                                 st.write("**Form Test Details:**")
                                 
                                 # Safe Mode indicator
-                                if form_test.get('safe_mode'):
-                                    if form_test.get('auto_safe_mode'):
+                                safe_mode = form_test.get('safe_mode', False)
+                                if safe_mode:
+                                    auto_safe_mode = form_test.get('auto_safe_mode', False)
+                                    if auto_safe_mode:
                                         st.warning("🛡️ **Auto-Safe Mode Active** - Form filled without submission to preserve session (automatic protection)")
                                     else:
                                         st.info("🛡️ **Safe Mode Active** - Form filled without submission to preserve session")
                                     
-                                    if form_test.get('safe_mode_reason'):
-                                        st.write(f"**Reason:** {form_test['safe_mode_reason']}")
+                                    safe_mode_reason = form_test.get('safe_mode_reason')
+                                    if safe_mode_reason:
+                                        st.write(f"**Reason:** {safe_mode_reason}")
                                 
                                     # Show detailed safe mode information
-                                    if form_test.get('message'):
-                                        st.write(f"**Message:** {form_test['message']}")
+                                    message = form_test.get('message')
+                                    if message:
+                                        st.write(f"**Message:** {message}")
                                 
                                 # Session timeout information
-                                if form_test.get('session_timeout_info'):
-                                    timeout_info = form_test['session_timeout_info']
-                                    if timeout_info.get('has_timeout'):
-                                        st.warning(f"⏰ **Session Timeout Detected:** {timeout_info.get('timeout_minutes', 'N/A')} minutes")
-                                        if timeout_info.get('warnings'):
-                                            for warning in timeout_info['warnings']:
-                                                st.warning(f"⚠️ {warning}")
+                                session_timeout_info = form_test.get('session_timeout_info')
+                                if session_timeout_info and isinstance(session_timeout_info, dict):
+                                    has_timeout = session_timeout_info.get('has_timeout', False)
+                                    if has_timeout:
+                                        timeout_minutes = session_timeout_info.get('timeout_minutes', 'N/A')
+                                        st.warning(f"⏰ **Session Timeout Detected:** {timeout_minutes} minutes")
+                                        
+                                        warnings = session_timeout_info.get('warnings')
+                                        if warnings and isinstance(warnings, list):
+                                            for warning in warnings:
+                                                if isinstance(warning, str):
+                                                    st.warning(f"⚠️ {warning}")
                                 
                                 # Session recovery information
-                                if form_test.get('session_restored'):
-                                    if form_test.get('session_recovery_success'):
+                                session_restored = form_test.get('session_restored', False)
+                                if session_restored:
+                                    session_recovery_success = form_test.get('session_recovery_success', False)
+                                    if session_recovery_success:
                                         st.success("🔄 **Session Recovery Successful** - User returned to authenticated state")
                                     else:
                                         st.error("❌ **Session Recovery Failed** - Still on login page")
                                 
                                 # Redirect analysis
-                                if form_test.get('redirect_analysis'):
-                                    redirect_analysis = form_test['redirect_analysis']
+                                redirect_analysis = form_test.get('redirect_analysis')
+                                if redirect_analysis and isinstance(redirect_analysis, dict):
                                     st.write("**🔍 Redirect Analysis:**")
-                                    st.write(f"**Cause:** {redirect_analysis.get('redirect_cause', 'Unknown')}")
+                                    redirect_cause = redirect_analysis.get('redirect_cause', 'Unknown')
+                                    st.write(f"**Cause:** {redirect_cause}")
                                     
-                                    if redirect_analysis.get('error_messages'):
+                                    error_messages = redirect_analysis.get('error_messages')
+                                    if error_messages and isinstance(error_messages, list):
                                         st.write("**Error Messages Found:**")
-                                        for error in redirect_analysis['error_messages'][:3]:  # Show first 3
-                                            st.write(f"- {error.get('text', 'N/A')}")
+                                        for error in error_messages[:3]:  # Show first 3
+                                            if isinstance(error, dict):
+                                                error_text = error.get('text', 'N/A')
+                                                st.write(f"- {error_text}")
                                     
-                                    if redirect_analysis.get('recommendations'):
+                                    recommendations = redirect_analysis.get('recommendations')
+                                    if recommendations and isinstance(recommendations, list):
                                         st.write("**💡 Recommendations:**")
-                                        for rec in redirect_analysis['recommendations']:
-                                            st.write(f"- {rec}")
+                                        for rec in recommendations:
+                                            if isinstance(rec, str):
+                                                st.write(f"- {rec}")
                                 
                                 # CSRF Token Support
-                                if form_test.get('csrf_tokens_found', 0) > 0:
-                                    st.success(f"🔐 **CSRF Protection:** {form_test['csrf_tokens_found']} token(s) found")
-                                    if form_test.get('csrf_token_added'):
+                                csrf_tokens_found = form_test.get('csrf_tokens_found', 0)
+                                if isinstance(csrf_tokens_found, (int, float)) and csrf_tokens_found > 0:
+                                    st.success(f"🔐 **CSRF Protection:** {csrf_tokens_found} token(s) found")
+                                    csrf_token_added = form_test.get('csrf_token_added', False)
+                                    if csrf_token_added:
                                         st.info("🔐 **CSRF Token Added** - Token automatically added to form")
                                 
                                 # Success/Error indicators
-                                if form_test.get('has_success_message'):
+                                has_success_message = form_test.get('has_success_message', False)
+                                if has_success_message:
                                     st.success("✅ Success message detected on page")
                                 
-                                if form_test.get('has_error_message'):
+                                has_error_message = form_test.get('has_error_message', False)
+                                if has_error_message:
                                     st.error("❌ Error message detected on page")
                                 
                                 # URL change
-                                if form_test.get('url_changed'):
+                                url_changed = form_test.get('url_changed', False)
+                                if url_changed:
                                     st.info("🔄 URL changed after form submission")
                                 
                                 # Validation errors
-                                if form_test.get('form_validation_errors'):
+                                form_validation_errors = form_test.get('form_validation_errors')
+                                if form_validation_errors and isinstance(form_validation_errors, list):
                                     st.error("⚠️ Form validation errors detected:")
-                                    for error in form_test['form_validation_errors']:
-                                        st.write(f"- {error.get('text', 'N/A')}")
+                                    for error in form_validation_errors:
+                                        if isinstance(error, dict):
+                                            error_text = error.get('text', 'N/A')
+                                            st.write(f"- {error_text}")
                                 
                                 # Network errors
-                                if form_test.get('network_errors'):
+                                network_errors = form_test.get('network_errors')
+                                if network_errors and isinstance(network_errors, list):
                                     st.error("🌐 Network errors during form submission:")
-                                    for error in form_test['network_errors']:
-                                        st.write(f"- {error.get('url', 'N/A')}: {error.get('failure', 'N/A')}")
+                                    for error in network_errors:
+                                        if isinstance(error, dict):
+                                            error_url = error.get('url', 'N/A')
+                                            error_failure = error.get('failure', 'N/A')
+                                            st.write(f"- {error_url}: {error_failure}")
                                 
                                 # Screenshot evidence
                                 st.write("**📸 Screenshot Evidence:**")
@@ -1855,12 +1900,13 @@ with tab1:
                                 screenshot_before = form_test.get('screenshot_before_path')
                                 screenshot_after = form_test.get('screenshot_after_path')
                                 
-                                if screenshot_before and os.path.exists(screenshot_before):
+                                if screenshot_before and isinstance(screenshot_before, str) and os.path.exists(screenshot_before):
                                     st.write("**Before Form Submission:**")
                                     st.image(screenshot_before, caption="Form before submission", width="stretch")
                                 
-                                if screenshot_after and os.path.exists(screenshot_after):
-                                    if form_test.get('safe_mode'):
+                                if screenshot_after and isinstance(screenshot_after, str) and os.path.exists(screenshot_after):
+                                    safe_mode = form_test.get('safe_mode', False)
+                                    if safe_mode:
                                         st.write("**After Form Filling (Safe Mode):**")
                                         st.image(screenshot_after, caption="Form after filling (submission skipped)", width="stretch")
                                     else:
@@ -1868,11 +1914,26 @@ with tab1:
                                         st.image(screenshot_after, caption="Form after submission", width="stretch")
                                 
                                 # Form test errors
-                                if form_test.get('errors'):
+                                form_test_errors = form_test.get('errors')
+                                if form_test_errors and isinstance(form_test_errors, list):
                                     st.error("**Form Test Errors:**")
-                                    for error in form_test['errors']:
-                                        st.write(f"- {error}")
+                                    for error in form_test_errors:
+                                        if isinstance(error, str):
+                                            st.write(f"- {error}")
                                 
+                                st.divider()
+                        
+                        # Handle form test errors (when form_test is None but form_test_error exists)
+                        elif 'form_test_error' in r and r['form_test_error']:
+                            form_test_error = r['form_test_error']
+                            
+                            with st.expander(f"❌ Form Test Error - {r.get('url', 'Unknown URL')[:80]}..."):
+                                st.error(f"**Form Test Failed:** {form_test_error}")
+                                st.info("Form testing encountered an error. This could be due to:")
+                                st.write("- No forms found on the page")
+                                st.write("- Form elements not accessible")
+                                st.write("- Page structure issues")
+                                st.write("- Network or timeout errors")
                                 st.divider()
                 
                 # Display Penetration Testing Results
