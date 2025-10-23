@@ -873,6 +873,9 @@ with tab1:
         artifacts_dir = f"artifacts/{run_id}"
         os.makedirs(artifacts_dir, exist_ok=True)
         
+        # Record start time
+        start_time = datetime.now()
+        
         # Initialize results
         results = []
         urls_to_test = []
@@ -1135,15 +1138,31 @@ with tab1:
                 # Generate stress test reports
                 report_paths = generate_stress_test_reports(stress_results, artifacts_dir, run_id)
                 
+                # Generate PDF report for stress test
+                with st.spinner("Generating PDF report..."):
+                    try:
+                        from app.services.pdf_reporter import PDFReporter
+                        pdf_reporter = PDFReporter(artifacts_dir)
+                        pdf_path = pdf_reporter.generate_report(run_id, stress_results)
+                        report_paths['pdf'] = pdf_path
+                    except Exception as e:
+                        st.warning(f"⚠️ PDF generation failed: {str(e)}")
+                        logger.error(f"PDF generation error: {e}")
+                
                 # Display report links
                 st.subheader("📄 Reports Generated")
-                col1, col2, col3 = st.columns(3)
+                col1, col2, col3, col4 = st.columns(4)
                 with col1:
                     st.markdown(f"**HTML Report:** [Open Report]({report_paths['html']})")
                 with col2:
                     st.markdown(f"**CSV Report:** [Download CSV]({report_paths['csv']})")
                 with col3:
                     st.markdown(f"**JSON Data:** [Download JSON]({report_paths['json']})")
+                with col4:
+                    if 'pdf' in report_paths and os.path.exists(report_paths['pdf']):
+                        st.markdown(f"**PDF Report:** [Download PDF]({report_paths['pdf']})")
+                    else:
+                        st.error("❌ PDF not available")
                 
                 # Update database
                 update_test_run(
@@ -1985,7 +2004,52 @@ with tab1:
                 with st.spinner("Generating reports..."):
                     report_paths = generate_all_reports(results, artifacts_dir, run_id)
                 
-                col1, col2, col3 = st.columns(3)
+                # Generate PDF report
+                with st.spinner("Generating PDF report..."):
+                    try:
+                        from app.services.pdf_reporter import PDFReporter
+                        pdf_reporter = PDFReporter(artifacts_dir)
+                        
+                        # Convert results list to proper format for PDF reporter
+                        # Determine the correct base URL based on test mode
+                        if test_mode == "Single Page":
+                            pdf_base_url = test_url
+                        elif test_mode == "Crawler Mode":
+                            pdf_base_url = base_url
+                        elif test_mode == "YAML Scenario":
+                            pdf_base_url = spec.base_url if 'spec' in locals() else "YAML Scenario"
+                        elif test_mode == "Stress Test":
+                            pdf_base_url = stress_url if 'stress_url' in locals() else "Stress Test"
+                        elif test_mode == "Load Generator":
+                            pdf_base_url = load_url if 'load_url' in locals() else "Load Generator"
+                        else:
+                            pdf_base_url = "Multiple URLs"
+                        
+                        pdf_data = {
+                            "run_id": run_id,
+                            "test_mode": test_mode,
+                            "base_url": pdf_base_url,
+                            "total_pages": len(results),
+                            "passed_pages": len([r for r in results if r.get('status') == 'passed']),
+                            "failed_pages": len([r for r in results if r.get('status') == 'failed']),
+                            "error_pages": len([r for r in results if r.get('status') == 'error']),
+                            "page_results": results,
+                            "start_time": start_time,
+                            "end_time": datetime.now(),
+                            "headless": headless,
+                            "timeout": timeout,
+                            "max_depth": max_depth if test_mode == "Crawler Mode" else None,
+                            "max_pages": max_pages if test_mode == "Crawler Mode" else None,
+                            "deep_component_test": deep_component_test
+                        }
+                        
+                        pdf_path = pdf_reporter.generate_report(run_id, pdf_data)
+                        report_paths['pdf'] = pdf_path
+                    except Exception as e:
+                        st.warning(f"⚠️ PDF generation failed: {str(e)}")
+                        logger.error(f"PDF generation error: {e}")
+                
+                col1, col2, col3, col4 = st.columns(4)
                 
                 # HTML Report
                 with col1:
@@ -2016,6 +2080,19 @@ with tab1:
                             file_name=f"report_{run_id}.json",
                             mime="application/json"
                         )
+                
+                # PDF Report
+                with col4:
+                    if 'pdf' in report_paths and os.path.exists(report_paths['pdf']):
+                        with open(report_paths['pdf'], 'rb') as f:
+                            st.download_button(
+                                "📄 Download PDF",
+                                f.read(),
+                                file_name=f"report_{run_id}.pdf",
+                                mime="application/pdf"
+                            )
+                    else:
+                        st.error("❌ PDF not available")
                 
                 st.success(f"✅ Reports saved to: `{artifacts_dir}`")
                 

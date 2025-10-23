@@ -31,3 +31,7 @@ pytest-playwright>=0.4.0
 # Utilities
 python-multipart>=0.0.6
 
+# PDF Generation
+reportlab>=4.0.0
+weasyprint>=60.0
+

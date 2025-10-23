@@ -22,7 +22,7 @@ Automated web testing tool untuk melakukan black-box functional testing pada web
 - 📊 **Real-time Progress Monitoring**: Live progress tracking dengan charts dan metrics
 - 🔒 **Penetration Testing**: XSS dan SQL Injection vulnerability testing
 - 📝 **YAML Scenarios**: Custom test workflows dengan actions dan assertions
-- 📊 **Rich Reports**: Export ke HTML, CSV, dan JSON
+- 📊 **Rich Reports**: Export ke HTML, CSV, JSON, dan PDF profesional
 - 💾 **Test History**: Track semua test runs dalam SQLite database
 - 📸 **Screenshots**: Capture full-page screenshots sebagai evidence
 
@@ -269,7 +269,7 @@ Aplikasi ini dilengkapi dengan fitur penetration testing untuk mendeteksi kerent
 
 ## 📊 Test Reports
 
-Setelah test selesai, aplikasi menghasilkan 3 format laporan:
+Setelah test selesai, aplikasi menghasilkan 4 format laporan:
 
 ### 1. HTML Report
 - Interactive report dengan visualisasi
@@ -287,6 +287,14 @@ Setelah test selesai, aplikasi menghasilkan 3 format laporan:
 - Machine-readable format
 - Complete structured data
 - Untuk integrasi dengan tools lain
+
+### 4. PDF Report ⭐ NEW!
+- **Laporan profesional** siap presentasi
+- **Executive summary** dengan metrik kunci
+- **Detailed analysis** per komponen
+- **Professional formatting** dengan color coding
+- **Recommendations** berdasarkan hasil testing
+- **Suitable untuk dokumentasi resmi**
 
 **Download:** Klik tombol download yang tersedia setelah test selesai.
 
