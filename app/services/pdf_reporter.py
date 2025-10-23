@@ -185,12 +185,41 @@ class PDFReporter:
                     story.append(Paragraph("Error generating detailed report sections.", self.styles['ErrorText']))
                 
                 # Component Analysis (if available)
-                if 'component_tests' in test_results:
+                # Check if component_tests exist in page_results
+                page_results = test_results.get('page_results', [])
+                has_component_tests = False
+                for page in page_results:
+                    if isinstance(page, dict) and 'component_tests' in page:
+                        has_component_tests = True
+                        break
+                
+                if has_component_tests:
                     try:
-                        story.extend(self._create_component_analysis(test_results['component_tests']))
+                        story.extend(self._create_component_analysis_from_pages(page_results))
                     except Exception as e:
                         logger.warning(f"Component analysis failed: {e}")
                         # Continue without component analysis
+                
+                # Penetration Testing Results (if available)
+                try:
+                    story.extend(self._create_penetration_testing_results(test_results))
+                except Exception as e:
+                    logger.warning(f"Penetration testing results failed: {e}")
+                    # Continue without penetration testing results
+                
+                # Assertion Results (if available)
+                try:
+                    story.extend(self._create_assertion_results(test_results))
+                except Exception as e:
+                    logger.warning(f"Assertion results failed: {e}")
+                    # Continue without assertion results
+                
+                # Form Testing Results (if available)
+                try:
+                    story.extend(self._create_form_testing_results(test_results))
+                except Exception as e:
+                    logger.warning(f"Form testing results failed: {e}")
+                    # Continue without form testing results
             
             # Screenshots Section
             try:
@@ -397,7 +426,7 @@ class PDFReporter:
         return story
     
     def _create_component_analysis(self, component_tests: Any) -> List:
-        """Create component analysis section."""
+        """Create comprehensive component analysis section."""
         story = []
         
         story.append(Paragraph("COMPONENT ANALYSIS", self.styles['CustomSubtitle']))
@@ -427,92 +456,644 @@ class PDFReporter:
             story.append(Paragraph("Error processing component analysis data.", self.styles['ErrorText']))
             return story
         
+        # Enhanced summary with more details
         summary_text = f"""
         <b>Component Testing Summary:</b><br/>
-        • Total Buttons: {summary.get('total_buttons', 0)} (Working: {summary.get('working_buttons', 0)})<br/>
-        • Total Images: {summary.get('total_images', 0)} (Loaded: {summary.get('loaded_images', 0)}, Broken: {summary.get('broken_images', 0)})<br/>
-        • Total Links: {summary.get('total_links', 0)} (Working: {summary.get('working_links', 0)})<br/>
-        • Total Forms: {summary.get('total_forms', 0)} (Complete: {summary.get('complete_forms', 0)})
+        • <b>Buttons:</b> {summary.get('total_buttons', 0)} total (Working: {summary.get('working_buttons', 0)}, Disabled: {summary.get('disabled_buttons', 0)}, Hidden: {summary.get('hidden_buttons', 0)})<br/>
+        • <b>Images:</b> {summary.get('total_images', 0)} total (Loaded: {summary.get('loaded_images', 0)}, Broken: {summary.get('broken_images', 0)}, No Alt: {summary.get('images_without_alt', 0)})<br/>
+        • <b>Links:</b> {summary.get('total_links', 0)} total (Working: {summary.get('working_links', 0)}, External: {summary.get('external_links', 0)}, Empty: {summary.get('empty_links', 0)})<br/>
+        • <b>Forms:</b> {summary.get('total_forms', 0)} total (Complete: {summary.get('complete_forms', 0)}, Incomplete: {summary.get('incomplete_forms', 0)})<br/>
+        • <b>Interactive Elements:</b> {summary.get('total_interactive', 0)} total (Checkboxes: {summary.get('checkboxes', 0)}, Radio: {summary.get('radio_buttons', 0)}, Select: {summary.get('select_elements', 0)})
         """
         
         story.append(Paragraph(summary_text, self.styles['SummaryText']))
         story.append(Spacer(1, 12))
         
-        # Detailed component results with safe access
-        for component_type in ['buttons', 'images', 'links', 'forms']:
+        # Detailed component results with enhanced information
+        for component_type in ['buttons', 'images', 'links', 'forms', 'interactive']:
             try:
+                component_data = None
+                tested_items = []
+                
                 if isinstance(component_tests, dict) and component_type in component_tests:
-                    story.append(Paragraph(f"<b>{component_type.title()} Analysis:</b>", self.styles['SectionHeader']))
-                    
                     component_data = component_tests[component_type]
-                    if isinstance(component_data, dict):
-                        tested_items = component_data.get(f'{component_type}_tested', [])
-                    else:
-                        tested_items = []
                 elif isinstance(component_tests, list):
                     # Search for component_type in the list
-                    component_data = None
                     for item in component_tests:
                         if isinstance(item, dict) and component_type in item:
                             component_data = item[component_type]
                             break
-                    
-                    if component_data:
-                        story.append(Paragraph(f"<b>{component_type.title()} Analysis:</b>", self.styles['SectionHeader']))
-                        if isinstance(component_data, dict):
-                            tested_items = component_data.get(f'{component_type}_tested', [])
-                        else:
-                            tested_items = []
-                    else:
-                        continue
-                else:
-                    continue
                 
-                if tested_items and isinstance(tested_items, list):
-                    # Create component table
-                    table_data = [['Element', 'Status', 'Details']]
+                if component_data and isinstance(component_data, dict):
+                    story.append(Paragraph(f"<b>{component_type.title()} Detailed Analysis:</b>", self.styles['SectionHeader']))
                     
-                    for item in tested_items[:10]:  # Limit to first 10 items
-                        try:
-                            if isinstance(item, dict):
-                                status = item.get('status', 'Unknown')
-                                details = item.get('details', 'N/A')
-                                
-                                # Safe text extraction
-                                text = 'N/A'
-                                for key in ['text', 'src', 'href']:
-                                    if key in item:
-                                        text = str(item[key])
-                                        break
-                                
-                                table_data.append([
-                                    text[:30] + '...' if len(text) > 30 else text,
-                                    status,
-                                    str(details)[:40] + '...' if len(str(details)) > 40 else str(details)
-                                ])
-                        except Exception as e:
-                            logger.warning(f"Error processing component item: {e}")
-                            continue
+                    # Get tested items
+                    tested_items = component_data.get(f'{component_type}_tested', [])
                     
-                    if len(table_data) > 1:  # More than just header
-                        table = Table(table_data, colWidths=[2*inch, 1*inch, 2*inch])
-                        table.setStyle(TableStyle([
-                            ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
-                            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                            ('FONTSIZE', (0, 0), (-1, 0), 9),
-                            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-                            ('BACKGROUND', (0, 1), (-1, -1), colors.lightgrey),
-                            ('GRID', (0, 0), (-1, -1), 1, colors.black),
-                            ('FONTSIZE', (0, 1), (-1, -1), 8)
-                        ]))
+                    if tested_items and isinstance(tested_items, list):
+                        # Create enhanced component table based on type
+                        if component_type == 'buttons':
+                            table_data = [['Button Text', 'Status', 'Visible', 'Enabled', 'Type']]
+                            for item in tested_items[:15]:  # Show more items
+                                if isinstance(item, dict):
+                                    text = item.get('text', 'N/A')[:25] + '...' if len(item.get('text', '')) > 25 else item.get('text', 'N/A')
+                                    status = item.get('status', 'Unknown')
+                                    visible = 'Yes' if item.get('visible', False) else 'No'
+                                    enabled = 'Yes' if item.get('enabled', False) else 'No'
+                                    button_type = item.get('type', 'button')
+                                    
+                                    table_data.append([text, status, visible, enabled, button_type])
                         
-                        story.append(table)
-                        story.append(Spacer(1, 12))
+                        elif component_type == 'images':
+                            table_data = [['Image Source', 'Status', 'Size', 'Alt Text', 'Loading']]
+                            for item in tested_items[:15]:
+                                if isinstance(item, dict):
+                                    src = item.get('src', 'N/A')[:30] + '...' if len(item.get('src', '')) > 30 else item.get('src', 'N/A')
+                                    status = item.get('status', 'Unknown')
+                                    size = f"{item.get('width', 0)}x{item.get('height', 0)}"
+                                    alt = item.get('alt', 'N/A')[:20] + '...' if len(item.get('alt', '')) > 20 else item.get('alt', 'N/A')
+                                    loading = 'Loaded' if item.get('status') == 'loaded' else 'Broken'
+                                    
+                                    table_data.append([src, status, size, alt, loading])
+                        
+                        elif component_type == 'links':
+                            table_data = [['Link Text/URL', 'Status', 'Type', 'Target', 'Accessible']]
+                            for item in tested_items[:15]:
+                                if isinstance(item, dict):
+                                    text = item.get('text', item.get('href', 'N/A'))[:25] + '...' if len(item.get('text', item.get('href', ''))) > 25 else item.get('text', item.get('href', 'N/A'))
+                                    status = item.get('status', 'Unknown')
+                                    link_type = 'Internal' if item.get('internal', False) else 'External'
+                                    target = item.get('target', '_self')
+                                    accessible = 'Yes' if item.get('accessible', False) else 'No'
+                                    
+                                    table_data.append([text, status, link_type, target, accessible])
+                        
+                        elif component_type == 'forms':
+                            table_data = [['Form Action', 'Status', 'Method', 'Inputs', 'Submit Button']]
+                            for item in tested_items[:10]:
+                                if isinstance(item, dict):
+                                    action = item.get('action', 'N/A')[:20] + '...' if len(item.get('action', '')) > 20 else item.get('action', 'N/A')
+                                    status = item.get('status', 'Unknown')
+                                    method = item.get('method', 'GET')
+                                    inputs = str(item.get('input_count', 0))
+                                    submit = 'Yes' if item.get('has_submit', False) else 'No'
+                                    
+                                    table_data.append([action, status, method, inputs, submit])
+                        
+                        elif component_type == 'interactive':
+                            table_data = [['Element Type', 'Status', 'Value', 'Checked', 'Options']]
+                            for item in tested_items[:15]:
+                                if isinstance(item, dict):
+                                    element_type = item.get('type', 'N/A')
+                                    status = item.get('status', 'Unknown')
+                                    value = str(item.get('value', 'N/A'))[:15] + '...' if len(str(item.get('value', ''))) > 15 else str(item.get('value', 'N/A'))
+                                    checked = 'Yes' if item.get('checked', False) else 'No'
+                                    options = str(item.get('option_count', 0))
+                                    
+                                    table_data.append([element_type, status, value, checked, options])
+                        
+                        # Create table with appropriate styling
+                        if len(table_data) > 1:  # More than just header
+                            col_widths = [1.5*inch, 0.8*inch, 0.8*inch, 0.8*inch, 0.8*inch] if len(table_data[0]) == 5 else [2*inch, 1*inch, 1.5*inch]
+                            
+                            table = Table(table_data, colWidths=col_widths)
+                            table.setStyle(TableStyle([
+                                ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
+                                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                                ('FONTSIZE', (0, 0), (-1, 0), 8),
+                                ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
+                                ('BACKGROUND', (0, 1), (-1, -1), colors.lightgrey),
+                                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                                ('FONTSIZE', (0, 1), (-1, -1), 7),
+                                ('VALIGN', (0, 0), (-1, -1), 'TOP')
+                            ]))
+                            
+                            story.append(table)
+                            story.append(Spacer(1, 8))
+                            
+                            # Add summary for this component type
+                            if component_type == 'buttons':
+                                working = len([item for item in tested_items if item.get('status') == 'working'])
+                                disabled = len([item for item in tested_items if item.get('status') == 'disabled'])
+                                story.append(Paragraph(f"<b>Summary:</b> {working} working, {disabled} disabled buttons found.", self.styles['InfoText']))
+                            elif component_type == 'images':
+                                loaded = len([item for item in tested_items if item.get('status') == 'loaded'])
+                                broken = len([item for item in tested_items if item.get('status') == 'broken'])
+                                story.append(Paragraph(f"<b>Summary:</b> {loaded} loaded, {broken} broken images found.", self.styles['InfoText']))
+                            elif component_type == 'links':
+                                working = len([item for item in tested_items if item.get('status') == 'working'])
+                                broken = len([item for item in tested_items if item.get('status') == 'broken'])
+                                story.append(Paragraph(f"<b>Summary:</b> {working} working, {broken} broken links found.", self.styles['InfoText']))
+                            
+                            story.append(Spacer(1, 12))
             except Exception as e:
                 logger.warning(f"Error processing {component_type} analysis: {e}")
                 continue
+        
+        return story
+    
+    def _create_component_analysis_from_pages(self, page_results: List[Dict[str, Any]]) -> List:
+        """Create component analysis from page results."""
+        story = []
+        
+        story.append(Paragraph("DETAILED COMPONENT ANALYSIS", self.styles['CustomSubtitle']))
+        story.append(Spacer(1, 12))
+        
+        # Aggregate component data from all pages
+        total_buttons = 0
+        total_images = 0
+        total_links = 0
+        total_forms = 0
+        total_interactive = 0
+        
+        working_buttons = 0
+        loaded_images = 0
+        broken_images = 0
+        working_links = 0
+        complete_forms = 0
+        
+        all_component_data = {
+            'buttons': [],
+            'images': [],
+            'links': [],
+            'forms': [],
+            'interactive': []
+        }
+        
+        for page_idx, page in enumerate(page_results):
+            if not isinstance(page, dict) or 'component_tests' not in page:
+                continue
+                
+            page_url = page.get('url', f'Page {page_idx + 1}')
+            component_tests = page['component_tests']
+            
+            if not isinstance(component_tests, dict):
+                continue
+            
+            # Extract summary data
+            summary = component_tests.get('summary', {})
+            total_buttons += summary.get('total_buttons', 0)
+            total_images += summary.get('total_images', 0)
+            total_links += summary.get('total_links', 0)
+            total_forms += summary.get('total_forms', 0)
+            total_interactive += summary.get('total_interactive', 0)
+            
+            working_buttons += summary.get('working_buttons', 0)
+            loaded_images += summary.get('loaded_images', 0)
+            broken_images += summary.get('broken_images', 0)
+            working_links += summary.get('working_links', 0)
+            complete_forms += summary.get('complete_forms', 0)
+            
+            # Collect detailed component data
+            for component_type in ['buttons', 'images', 'links', 'forms', 'interactive']:
+                if component_type in component_tests:
+                    component_data = component_tests[component_type]
+                    if isinstance(component_data, dict):
+                        tested_items = component_data.get(f'{component_type}_tested', [])
+                        if isinstance(tested_items, list):
+                            # Add page context to each item
+                            for item in tested_items:
+                                if isinstance(item, dict):
+                                    item['page_url'] = page_url
+                                    item['page_idx'] = page_idx
+                            all_component_data[component_type].extend(tested_items)
+        
+        # Overall summary
+        summary_text = f"""
+        <b>Overall Component Testing Summary:</b><br/>
+        • <b>Buttons:</b> {total_buttons} total (Working: {working_buttons}, Disabled: {total_buttons - working_buttons})<br/>
+        • <b>Images:</b> {total_images} total (Loaded: {loaded_images}, Broken: {broken_images})<br/>
+        • <b>Links:</b> {total_links} total (Working: {working_links}, Broken: {total_links - working_links})<br/>
+        • <b>Forms:</b> {total_forms} total (Complete: {complete_forms}, Incomplete: {total_forms - complete_forms})<br/>
+        • <b>Interactive Elements:</b> {total_interactive} total
+        """
+        
+        story.append(Paragraph(summary_text, self.styles['SummaryText']))
+        story.append(Spacer(1, 12))
+        
+        # Detailed component analysis for each type
+        for component_type in ['buttons', 'images', 'links', 'forms', 'interactive']:
+            component_items = all_component_data[component_type]
+            
+            if not component_items:
+                continue
+                
+            story.append(Paragraph(f"<b>{component_type.title()} Detailed Analysis:</b>", self.styles['SectionHeader']))
+            story.append(Spacer(1, 8))
+            
+            # Create detailed table based on component type
+            if component_type == 'buttons':
+                table_data = [['Page', 'Button Text', 'Status', 'Visible', 'Enabled', 'Type']]
+                for item in component_items[:20]:  # Limit to first 20
+                    if isinstance(item, dict):
+                        page_url = item.get('page_url', 'N/A')[:30] + '...' if len(item.get('page_url', '')) > 30 else item.get('page_url', 'N/A')
+                        text = item.get('text', 'N/A')[:20] + '...' if len(item.get('text', '')) > 20 else item.get('text', 'N/A')
+                        status = item.get('status', 'Unknown')
+                        visible = 'Yes' if item.get('visible', False) else 'No'
+                        enabled = 'Yes' if item.get('enabled', False) else 'No'
+                        button_type = item.get('type', 'button')
+                        
+                        table_data.append([page_url, text, status, visible, enabled, button_type])
+            
+            elif component_type == 'images':
+                table_data = [['Page', 'Image Source', 'Status', 'Size', 'Alt Text']]
+                for item in component_items[:20]:
+                    if isinstance(item, dict):
+                        page_url = item.get('page_url', 'N/A')[:30] + '...' if len(item.get('page_url', '')) > 30 else item.get('page_url', 'N/A')
+                        src = item.get('src', 'N/A')[:25] + '...' if len(item.get('src', '')) > 25 else item.get('src', 'N/A')
+                        status = item.get('status', 'Unknown')
+                        size = f"{item.get('width', 0)}x{item.get('height', 0)}"
+                        alt = item.get('alt', 'N/A')[:15] + '...' if len(item.get('alt', '')) > 15 else item.get('alt', 'N/A')
+                        
+                        table_data.append([page_url, src, status, size, alt])
+            
+            elif component_type == 'links':
+                table_data = [['Page', 'Link Text/URL', 'Status', 'Type', 'Target']]
+                for item in component_items[:20]:
+                    if isinstance(item, dict):
+                        page_url = item.get('page_url', 'N/A')[:30] + '...' if len(item.get('page_url', '')) > 30 else item.get('page_url', 'N/A')
+                        text = item.get('text', item.get('href', 'N/A'))[:20] + '...' if len(item.get('text', item.get('href', ''))) > 20 else item.get('text', item.get('href', 'N/A'))
+                        status = item.get('status', 'Unknown')
+                        link_type = 'Internal' if item.get('internal', False) else 'External'
+                        target = item.get('target', '_self')
+                        
+                        table_data.append([page_url, text, status, link_type, target])
+            
+            elif component_type == 'forms':
+                table_data = [['Page', 'Form Action', 'Status', 'Method', 'Inputs', 'Submit']]
+                for item in component_items[:15]:
+                    if isinstance(item, dict):
+                        page_url = item.get('page_url', 'N/A')[:30] + '...' if len(item.get('page_url', '')) > 30 else item.get('page_url', 'N/A')
+                        action = item.get('action', 'N/A')[:15] + '...' if len(item.get('action', '')) > 15 else item.get('action', 'N/A')
+                        status = item.get('status', 'Unknown')
+                        method = item.get('method', 'GET')
+                        inputs = str(item.get('input_count', 0))
+                        submit = 'Yes' if item.get('has_submit', False) else 'No'
+                        
+                        table_data.append([page_url, action, status, method, inputs, submit])
+            
+            elif component_type == 'interactive':
+                table_data = [['Page', 'Element Type', 'Status', 'Value', 'Checked']]
+                for item in component_items[:20]:
+                    if isinstance(item, dict):
+                        page_url = item.get('page_url', 'N/A')[:30] + '...' if len(item.get('page_url', '')) > 30 else item.get('page_url', 'N/A')
+                        element_type = item.get('type', 'N/A')
+                        status = item.get('status', 'Unknown')
+                        value = str(item.get('value', 'N/A'))[:15] + '...' if len(str(item.get('value', ''))) > 15 else str(item.get('value', 'N/A'))
+                        checked = 'Yes' if item.get('checked', False) else 'No'
+                        
+                        table_data.append([page_url, element_type, status, value, checked])
+            
+            # Create table
+            if len(table_data) > 1:  # More than just header
+                col_widths = [1.2*inch, 1.5*inch, 0.8*inch, 0.8*inch, 0.8*inch, 0.8*inch] if len(table_data[0]) == 6 else [1.2*inch, 1.5*inch, 0.8*inch, 0.8*inch, 0.8*inch]
+                
+                table = Table(table_data, colWidths=col_widths)
+                table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 7),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.lightgrey),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                    ('FONTSIZE', (0, 1), (-1, -1), 6),
+                    ('VALIGN', (0, 0), (-1, -1), 'TOP')
+                ]))
+                
+                story.append(table)
+                story.append(Spacer(1, 8))
+                
+                # Add summary for this component type
+                if component_type == 'buttons':
+                    working = len([item for item in component_items if item.get('status') == 'working'])
+                    disabled = len([item for item in component_items if item.get('status') == 'disabled'])
+                    story.append(Paragraph(f"<b>Summary:</b> {working} working, {disabled} disabled buttons found.", self.styles['InfoText']))
+                elif component_type == 'images':
+                    loaded = len([item for item in component_items if item.get('status') == 'loaded'])
+                    broken = len([item for item in component_items if item.get('status') == 'broken'])
+                    story.append(Paragraph(f"<b>Summary:</b> {loaded} loaded, {broken} broken images found.", self.styles['InfoText']))
+                elif component_type == 'links':
+                    working = len([item for item in component_items if item.get('status') == 'working'])
+                    broken = len([item for item in component_items if item.get('status') == 'broken'])
+                    story.append(Paragraph(f"<b>Summary:</b> {working} working, {broken} broken links found.", self.styles['InfoText']))
+                
+                story.append(Spacer(1, 12))
+        
+        return story
+    
+    def _create_penetration_testing_results(self, test_results: Dict[str, Any]) -> List:
+        """Create penetration testing results section."""
+        story = []
+        
+        # Check if there are any penetration testing results
+        page_results = test_results.get('page_results', [])
+        if not page_results:
+            return story
+        
+        has_pentest_results = False
+        for page in page_results:
+            if isinstance(page, dict) and ('xss_test' in page or 'sql_test' in page):
+                has_pentest_results = True
+                break
+        
+        if not has_pentest_results:
+            return story
+        
+        story.append(Paragraph("PENETRATION TESTING RESULTS", self.styles['CustomSubtitle']))
+        story.append(Spacer(1, 12))
+        
+        # Summary of penetration testing
+        total_vulnerabilities = 0
+        xss_vulnerabilities = 0
+        sql_vulnerabilities = 0
+        
+        for page in page_results:
+            if isinstance(page, dict):
+                if 'xss_test' in page and page['xss_test']:
+                    xss_test = page['xss_test']
+                    if isinstance(xss_test, dict) and 'summary' in xss_test:
+                        xss_vulnerabilities += xss_test['summary'].get('vulnerabilities_found', 0)
+                
+                if 'sql_test' in page and page['sql_test']:
+                    sql_test = page['sql_test']
+                    if isinstance(sql_test, dict) and 'summary' in sql_test:
+                        sql_vulnerabilities += sql_test['summary'].get('vulnerabilities_found', 0)
+        
+        total_vulnerabilities = xss_vulnerabilities + sql_vulnerabilities
+        
+        summary_text = f"""
+        <b>Security Testing Summary:</b><br/>
+        • <b>Total Vulnerabilities Found:</b> {total_vulnerabilities}<br/>
+        • <b>XSS Vulnerabilities:</b> {xss_vulnerabilities}<br/>
+        • <b>SQL Injection Vulnerabilities:</b> {sql_vulnerabilities}<br/>
+        • <b>Security Status:</b> {'🚨 HIGH RISK' if total_vulnerabilities > 0 else '✅ SECURE'}
+        """
+        
+        story.append(Paragraph(summary_text, self.styles['SummaryText']))
+        story.append(Spacer(1, 12))
+        
+        # Detailed penetration testing results
+        for page_idx, page in enumerate(page_results):
+            if not isinstance(page, dict):
+                continue
+                
+            page_url = page.get('url', f'Page {page_idx + 1}')
+            page_pentest_results = []
+            
+            # XSS Test Results
+            if 'xss_test' in page and page['xss_test']:
+                xss_test = page['xss_test']
+                if isinstance(xss_test, dict):
+                    page_pentest_results.append(('XSS', xss_test))
+            
+            # SQL Test Results
+            if 'sql_test' in page and page['sql_test']:
+                sql_test = page['sql_test']
+                if isinstance(sql_test, dict):
+                    page_pentest_results.append(('SQL Injection', sql_test))
+            
+            if page_pentest_results:
+                story.append(Paragraph(f"<b>Security Test Results - {page_url[:60]}...</b>", self.styles['SectionHeader']))
+                story.append(Spacer(1, 8))
+                
+                for test_type, test_data in page_pentest_results:
+                    if isinstance(test_data, dict) and 'summary' in test_data:
+                        summary = test_data['summary']
+                        vulnerabilities = summary.get('vulnerabilities_found', 0)
+                        
+                        if vulnerabilities > 0:
+                            story.append(Paragraph(f"🚨 <b>{test_type} Vulnerabilities Found: {vulnerabilities}</b>", self.styles['ErrorText']))
+                            
+                            # Show detailed results
+                            form_tests = test_data.get('form_tests', [])
+                            if form_tests and isinstance(form_tests, list):
+                                story.append(Paragraph(f"<b>Vulnerable Inputs:</b>", self.styles['InfoText']))
+                                
+                                for test in form_tests[:5]:  # Limit to first 5
+                                    if isinstance(test, dict) and test.get('is_vulnerable'):
+                                        input_name = test.get('input_name', 'N/A')
+                                        payload = test.get('payload', 'N/A')
+                                        risk_level = test.get('risk_level', 'N/A')
+                                        
+                                        story.append(Paragraph(f"• <b>Input:</b> {input_name}", self.styles['InfoText']))
+                                        story.append(Paragraph(f"  <b>Payload:</b> {payload}", self.styles['InfoText']))
+                                        story.append(Paragraph(f"  <b>Risk Level:</b> {risk_level}", self.styles['InfoText']))
+                                        story.append(Spacer(1, 4))
+                        else:
+                            story.append(Paragraph(f"✅ No {test_type} vulnerabilities found", self.styles['SuccessText']))
+                    
+                    story.append(Spacer(1, 8))
+        
+        return story
+    
+    def _create_assertion_results(self, test_results: Dict[str, Any]) -> List:
+        """Create assertion results section."""
+        story = []
+        
+        # Check if there are any assertion results
+        page_results = test_results.get('page_results', [])
+        if not page_results:
+            return story
+        
+        has_assertions = False
+        for page in page_results:
+            if isinstance(page, dict) and 'assertions' in page:
+                has_assertions = True
+                break
+        
+        if not has_assertions:
+            return story
+        
+        story.append(Paragraph("ASSERTION TESTING RESULTS", self.styles['CustomSubtitle']))
+        story.append(Spacer(1, 12))
+        
+        # Summary of assertions
+        total_assertions = 0
+        passed_assertions = 0
+        failed_assertions = 0
+        
+        for page in page_results:
+            if isinstance(page, dict) and 'assertions' in page:
+                assertions = page['assertions']
+                if isinstance(assertions, list):
+                    for assertion in assertions:
+                        if isinstance(assertion, dict):
+                            total_assertions += 1
+                            if assertion.get('pass', False):
+                                passed_assertions += 1
+                            else:
+                                failed_assertions += 1
+        
+        success_rate = (passed_assertions/total_assertions*100) if total_assertions > 0 else 0
+        summary_text = f"""
+        <b>Assertion Testing Summary:</b><br/>
+        • <b>Total Assertions:</b> {total_assertions}<br/>
+        • <b>Passed:</b> {passed_assertions}<br/>
+        • <b>Failed:</b> {failed_assertions}<br/>
+        • <b>Success Rate:</b> {success_rate:.1f}%
+        """
+        
+        story.append(Paragraph(summary_text, self.styles['SummaryText']))
+        story.append(Spacer(1, 12))
+        
+        # Detailed assertion results
+        for page_idx, page in enumerate(page_results):
+            if not isinstance(page, dict) or 'assertions' not in page:
+                continue
+            
+            page_url = page.get('url', f'Page {page_idx + 1}')
+            assertions = page.get('assertions', [])
+            
+            if assertions and isinstance(assertions, list):
+                story.append(Paragraph(f"<b>Assertion Results - {page_url[:60]}...</b>", self.styles['SectionHeader']))
+                story.append(Spacer(1, 8))
+                
+                # Create assertion table
+                table_data = [['Assertion', 'Status', 'Expected', 'Actual']]
+                
+                for assertion in assertions:
+                    if isinstance(assertion, dict):
+                        assert_name = assertion.get('assert', 'Unknown')
+                        passed = assertion.get('pass', False)
+                        expected = assertion.get('expected', 'N/A')
+                        actual = assertion.get('actual', 'N/A')
+                        
+                        status = '✅ PASS' if passed else '❌ FAIL'
+                        
+                        table_data.append([
+                            assert_name,
+                            status,
+                            str(expected)[:30] + '...' if len(str(expected)) > 30 else str(expected),
+                            str(actual)[:30] + '...' if len(str(actual)) > 30 else str(actual)
+                        ])
+                
+                if len(table_data) > 1:  # More than just header
+                    table = Table(table_data, colWidths=[1.5*inch, 0.8*inch, 1.5*inch, 1.5*inch])
+                    table.setStyle(TableStyle([
+                        ('BACKGROUND', (0, 0), (-1, 0), colors.darkgreen),
+                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                        ('FONTSIZE', (0, 0), (-1, 0), 8),
+                        ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
+                        ('BACKGROUND', (0, 1), (-1, -1), colors.lightgrey),
+                        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                        ('FONTSIZE', (0, 1), (-1, -1), 7)
+                    ]))
+                    
+                    story.append(table)
+                    story.append(Spacer(1, 12))
+        
+        return story
+    
+    def _create_form_testing_results(self, test_results: Dict[str, Any]) -> List:
+        """Create form testing results section with screenshots."""
+        story = []
+        
+        # Check if there are any form testing results
+        page_results = test_results.get('page_results', [])
+        if not page_results:
+            return story
+        
+        has_form_results = False
+        for page in page_results:
+            if isinstance(page, dict) and 'form_test' in page:
+                has_form_results = True
+                break
+        
+        if not has_form_results:
+            return story
+        
+        story.append(Paragraph("FORM TESTING RESULTS", self.styles['CustomSubtitle']))
+        story.append(Spacer(1, 12))
+        
+        # Summary of form testing
+        total_forms_tested = 0
+        successful_forms = 0
+        failed_forms = 0
+        
+        for page in page_results:
+            if isinstance(page, dict) and 'form_test' in page:
+                form_test = page['form_test']
+                if isinstance(form_test, dict):
+                    total_forms_tested += 1
+                    if form_test.get('success', False):
+                        successful_forms += 1
+                    else:
+                        failed_forms += 1
+        
+        success_rate = (successful_forms/total_forms_tested*100) if total_forms_tested > 0 else 0
+        summary_text = f"""
+        <b>Form Testing Summary:</b><br/>
+        • <b>Total Forms Tested:</b> {total_forms_tested}<br/>
+        • <b>Successful Forms:</b> {successful_forms}<br/>
+        • <b>Failed Forms:</b> {failed_forms}<br/>
+        • <b>Success Rate:</b> {success_rate:.1f}%
+        """
+        
+        story.append(Paragraph(summary_text, self.styles['SummaryText']))
+        story.append(Spacer(1, 12))
+        
+        # Detailed form testing results
+        for page_idx, page in enumerate(page_results):
+            if not isinstance(page, dict) or 'form_test' not in page:
+                continue
+                
+            page_url = page.get('url', f'Page {page_idx + 1}')
+            form_test = page['form_test']
+            
+            if not isinstance(form_test, dict):
+                continue
+            
+            story.append(Paragraph(f"<b>Form Test Results - {page_url[:60]}...</b>", self.styles['SectionHeader']))
+            story.append(Spacer(1, 8))
+            
+            # Form test details
+            success = form_test.get('success', False)
+            status_text = "✅ SUCCESS" if success else "❌ FAILED"
+            story.append(Paragraph(f"<b>Status:</b> {status_text}", self.styles['SuccessText'] if success else self.styles['ErrorText']))
+            
+            # Form details
+            form_details = form_test.get('form_details', {})
+            if form_details:
+                story.append(Paragraph(f"<b>Form Details:</b>", self.styles['InfoText']))
+                story.append(Paragraph(f"• <b>Action:</b> {form_details.get('action', 'N/A')}", self.styles['InfoText']))
+                story.append(Paragraph(f"• <b>Method:</b> {form_details.get('method', 'N/A')}", self.styles['InfoText']))
+                story.append(Paragraph(f"• <b>Inputs Found:</b> {form_details.get('input_count', 0)}", self.styles['InfoText']))
+                story.append(Paragraph(f"• <b>Submit Button:</b> {'Yes' if form_details.get('has_submit', False) else 'No'}", self.styles['InfoText']))
+            
+            # Form filling results
+            filling_results = form_test.get('filling_results', {})
+            if filling_results:
+                story.append(Paragraph(f"<b>Form Filling Results:</b>", self.styles['InfoText']))
+                story.append(Paragraph(f"• <b>Fields Filled:</b> {filling_results.get('fields_filled', 0)}", self.styles['InfoText']))
+                story.append(Paragraph(f"• <b>Fields Failed:</b> {filling_results.get('fields_failed', 0)}", self.styles['InfoText']))
+                story.append(Paragraph(f"• <b>Safe Mode:</b> {'Yes' if filling_results.get('safe_mode', False) else 'No'}", self.styles['InfoText']))
+            
+            # Screenshots
+            screenshots = form_test.get('screenshots', [])
+            if screenshots and isinstance(screenshots, list):
+                story.append(Paragraph(f"<b>Screenshots Captured:</b> {len(screenshots)}", self.styles['InfoText']))
+                
+                # List screenshot files
+                for i, screenshot in enumerate(screenshots[:3]):  # Limit to first 3 screenshots
+                    if isinstance(screenshot, str):
+                        screenshot_name = screenshot.split('/')[-1] if '/' in screenshot else screenshot
+                        story.append(Paragraph(f"• {screenshot_name}", self.styles['InfoText']))
+            
+            # Error details if failed
+            if not success:
+                error_details = form_test.get('error_details', {})
+                if error_details:
+                    story.append(Paragraph(f"<b>Error Details:</b>", self.styles['ErrorText']))
+                    error_message = error_details.get('error_message', 'Unknown error')
+                    story.append(Paragraph(f"• {error_message}", self.styles['ErrorText']))
+            
+            story.append(Spacer(1, 12))
         
         return story
     
