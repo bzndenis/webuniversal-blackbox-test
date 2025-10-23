@@ -1098,31 +1098,131 @@ class PDFReporter:
         return story
     
     def _create_screenshots_section(self, test_results: Dict[str, Any]) -> List:
-        """Create screenshots section."""
+        """Create screenshots section with detailed evidence."""
         story = []
         
         story.append(Paragraph("SCREENSHOTS & EVIDENCE", self.styles['CustomSubtitle']))
         story.append(Spacer(1, 12))
         
-        # Count screenshots with safe access
+        # Count screenshots from all possible locations
         page_results = test_results.get('page_results', [])
         if not page_results and 'results' in test_results:
             page_results = test_results.get('results', [])
         
         total_screenshots = 0
+        all_screenshots = []
+        
         if isinstance(page_results, list):
-            for page in page_results:
+            for page_idx, page in enumerate(page_results):
                 if isinstance(page, dict):
-                    screenshots = page.get('screenshots', [])
-                    if isinstance(screenshots, list):
-                        total_screenshots += len(screenshots)
+                    page_url = page.get('url', f'Page {page_idx + 1}')
+                    
+                    # Check for screenshots in different locations
+                    screenshots = []
+                    
+                    # 1. Main screenshots array
+                    if 'screenshots' in page and isinstance(page['screenshots'], list):
+                        screenshots.extend(page['screenshots'])
+                    
+                    # 2. Screenshots from form testing
+                    if 'form_test' in page and isinstance(page['form_test'], dict):
+                        form_screenshots = page['form_test'].get('screenshots', [])
+                        if isinstance(form_screenshots, list):
+                            screenshots.extend(form_screenshots)
+                    
+                    # 3. Screenshots from component testing
+                    if 'component_tests' in page and isinstance(page['component_tests'], dict):
+                        comp_screenshots = page['component_tests'].get('screenshots', [])
+                        if isinstance(comp_screenshots, list):
+                            screenshots.extend(comp_screenshots)
+                    
+                    # 4. Screenshots from penetration testing
+                    if 'xss_test' in page and isinstance(page['xss_test'], dict):
+                        xss_screenshots = page['xss_test'].get('screenshots', [])
+                        if isinstance(xss_screenshots, list):
+                            screenshots.extend(xss_screenshots)
+                    
+                    if 'sql_test' in page and isinstance(page['sql_test'], dict):
+                        sql_screenshots = page['sql_test'].get('screenshots', [])
+                        if isinstance(sql_screenshots, list):
+                            screenshots.extend(sql_screenshots)
+                    
+                    # Add to total count
+                    total_screenshots += len(screenshots)
+                    
+                    # Store screenshots with page context
+                    for screenshot in screenshots:
+                        if isinstance(screenshot, str):
+                            all_screenshots.append({
+                                'file': screenshot,
+                                'page': page_url,
+                                'page_idx': page_idx
+                            })
         
         if total_screenshots > 0:
             story.append(Paragraph(f"<b>Total Screenshots Captured:</b> {total_screenshots}", self.styles['SummaryText']))
+            story.append(Spacer(1, 8))
+            
+            # Group screenshots by type
+            main_screenshots = []
+            form_screenshots = []
+            component_screenshots = []
+            security_screenshots = []
+            
+            for screenshot_info in all_screenshots:
+                file_name = screenshot_info['file']
+                if 'form' in file_name.lower():
+                    form_screenshots.append(screenshot_info)
+                elif 'component' in file_name.lower():
+                    component_screenshots.append(screenshot_info)
+                elif 'xss' in file_name.lower() or 'sql' in file_name.lower():
+                    security_screenshots.append(screenshot_info)
+                else:
+                    main_screenshots.append(screenshot_info)
+            
+            # Display screenshots by category
+            if main_screenshots:
+                story.append(Paragraph(f"<b>Main Screenshots ({len(main_screenshots)}):</b>", self.styles['SectionHeader']))
+                for screenshot_info in main_screenshots[:10]:  # Limit to first 10
+                    file_name = screenshot_info['file'].split('/')[-1] if '/' in screenshot_info['file'] else screenshot_info['file']
+                    page_url = screenshot_info['page'][:50] + '...' if len(screenshot_info['page']) > 50 else screenshot_info['page']
+                    story.append(Paragraph(f"• <b>{file_name}</b> - {page_url}", self.styles['InfoText']))
+                story.append(Spacer(1, 8))
+            
+            if form_screenshots:
+                story.append(Paragraph(f"<b>Form Testing Screenshots ({len(form_screenshots)}):</b>", self.styles['SectionHeader']))
+                for screenshot_info in form_screenshots[:5]:  # Limit to first 5
+                    file_name = screenshot_info['file'].split('/')[-1] if '/' in screenshot_info['file'] else screenshot_info['file']
+                    page_url = screenshot_info['page'][:50] + '...' if len(screenshot_info['page']) > 50 else screenshot_info['page']
+                    story.append(Paragraph(f"• <b>{file_name}</b> - {page_url}", self.styles['InfoText']))
+                story.append(Spacer(1, 8))
+            
+            if component_screenshots:
+                story.append(Paragraph(f"<b>Component Testing Screenshots ({len(component_screenshots)}):</b>", self.styles['SectionHeader']))
+                for screenshot_info in component_screenshots[:5]:  # Limit to first 5
+                    file_name = screenshot_info['file'].split('/')[-1] if '/' in screenshot_info['file'] else screenshot_info['file']
+                    page_url = screenshot_info['page'][:50] + '...' if len(screenshot_info['page']) > 50 else screenshot_info['page']
+                    story.append(Paragraph(f"• <b>{file_name}</b> - {page_url}", self.styles['InfoText']))
+                story.append(Spacer(1, 8))
+            
+            if security_screenshots:
+                story.append(Paragraph(f"<b>Security Testing Screenshots ({len(security_screenshots)}):</b>", self.styles['SectionHeader']))
+                for screenshot_info in security_screenshots[:5]:  # Limit to first 5
+                    file_name = screenshot_info['file'].split('/')[-1] if '/' in screenshot_info['file'] else screenshot_info['file']
+                    page_url = screenshot_info['page'][:50] + '...' if len(screenshot_info['page']) > 50 else screenshot_info['page']
+                    story.append(Paragraph(f"• <b>{file_name}</b> - {page_url}", self.styles['InfoText']))
+                story.append(Spacer(1, 8))
+            
+            # Artifacts directory info
             story.append(Paragraph("Screenshots are available in the artifacts directory for detailed analysis.", 
                                  self.styles['SummaryText']))
+            
         else:
             story.append(Paragraph("No screenshots were captured during this test run.", self.styles['SummaryText']))
+            story.append(Paragraph("This may indicate:", self.styles['InfoText']))
+            story.append(Paragraph("• Screenshots were disabled in test configuration", self.styles['InfoText']))
+            story.append(Paragraph("• Test failed before screenshot capture", self.styles['InfoText']))
+            story.append(Paragraph("• Browser automation issues", self.styles['InfoText']))
         
         story.append(Spacer(1, 12))
         
