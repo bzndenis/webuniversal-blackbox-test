@@ -98,7 +98,8 @@ def cmd_smoke(args):
         test_forms=args.forms,
         auth=auth_config,
         enable_xss_test=args.xss,
-        enable_sql_test=args.sql
+        enable_sql_test=args.sql,
+        enable_api_test=args.api
     )
     
     print(f"🏁 Test finished with status: {result.get('status')}")
@@ -213,6 +214,7 @@ def main():
     smoke_parser.add_argument("--forms", action="store_true", help="Test forms")
     smoke_parser.add_argument("--xss", action="store_true", help="Enable XSS test")
     smoke_parser.add_argument("--sql", action="store_true", help="Enable SQL injection test")
+    smoke_parser.add_argument("--api", action="store_true", help="Enable API vulnerability test")
     # Auth args
     smoke_parser.add_argument("--auth-user", help="Username for auth")
     smoke_parser.add_argument("--auth-pass", help="Password for auth")

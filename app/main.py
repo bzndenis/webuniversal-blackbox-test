@@ -709,6 +709,13 @@ with st.sidebar:
         key="enable_sql_test"
     )
     
+    enable_api_test = st.checkbox(
+        "API Vulnerability Testing",
+        value=st.session_state.get("enable_api_test", False),
+        help="Test API vulnerabilities (SQL Injection, XSS, Auth Bypass, Path Traversal, Rate Limiting, CORS)",
+        key="enable_api_test"
+    )
+    
     test_forms = st.checkbox(
         "Test Forms Submission (Experimental)",
         value=st.session_state.test_forms,
@@ -1601,7 +1608,8 @@ with tab1:
                         form_safe_mode=form_safe_mode_value,
                         auth=auth_config,
                         enable_xss_test=enable_xss_test,
-                        enable_sql_test=enable_sql_test
+                        enable_sql_test=enable_sql_test,
+                        enable_api_test=enable_api_test
                     )
                     
                     # Form testing is now handled in run_page_smoke with test_forms parameter
@@ -1988,7 +1996,7 @@ with tab1:
                                 st.divider()
                 
                 # Display Penetration Testing Results
-                if (enable_xss_test or enable_sql_test) and results:
+                if (enable_xss_test or enable_sql_test or enable_api_test) and results:
                     st.subheader("🔒 Penetration Testing Results")
                     
                     for idx, r in enumerate(results):
@@ -2004,29 +2012,80 @@ with tab1:
                             sql_test = r['sql_test']
                             pentest_results.append(('SQL Injection', sql_test))
                         
+                        # API Test Results
+                        if 'api_test' in r and r['api_test']:
+                            api_test = r['api_test']
+                            pentest_results.append(('API Vulnerability', api_test))
+                        
                         if pentest_results:
                             with st.expander(f"🔒 Penetration Test Results - {r['url'][:80]}..."):
                                 for test_type, test_data in pentest_results:
                                     st.write(f"**{test_type} Testing:**")
                                     
-                                    summary = test_data.get('summary', {})
-                                    vulnerabilities = summary.get('vulnerabilities_found', 0)
-                                    
-                                    if vulnerabilities > 0:
-                                        st.error(f"🚨 **{vulnerabilities} vulnerabilities found!**")
+                                    # Handle different test result structures
+                                    if test_type == 'API Vulnerability':
+                                        summary = test_data.get('summary', {})
+                                        vulnerable_tests = summary.get('vulnerable_tests', 0)
+                                        total_tests = summary.get('total_tests', 0)
                                         
-                                        # Show detailed results
-                                        form_tests = test_data.get('form_tests', [])
-                                        for test in form_tests:
-                                            if test.get('is_vulnerable'):
-                                                st.write(f"**Input:** {test.get('input_name', 'N/A')}")
-                                                st.write(f"**Payload:** `{test.get('payload', 'N/A')}`")
-                                                st.write(f"**Risk Level:** {test.get('risk_level', 'N/A')}")
-                                                if test.get('response_snippet'):
-                                                    st.write(f"**Response:** {test.get('response_snippet', '')[:200]}...")
-                                                st.divider()
+                                        if vulnerable_tests > 0:
+                                            st.error(f"🚨 **{vulnerable_tests} vulnerabilities found out of {total_tests} tests!**")
+                                            
+                                            # Show summary by risk level
+                                            critical = summary.get('critical_vulnerabilities', 0)
+                                            high = summary.get('high_vulnerabilities', 0)
+                                            medium = summary.get('medium_vulnerabilities', 0)
+                                            low = summary.get('low_vulnerabilities', 0)
+                                            
+                                            if critical > 0:
+                                                st.error(f"🔴 Critical: {critical}")
+                                            if high > 0:
+                                                st.error(f"🟠 High: {high}")
+                                            if medium > 0:
+                                                st.warning(f"🟡 Medium: {medium}")
+                                            if low > 0:
+                                                st.info(f"🔵 Low: {low}")
+                                            
+                                            # Show detailed results by test type
+                                            test_types = ['sql_injection', 'xss', 'auth_bypass', 'path_traversal', 'rate_limit', 'cors']
+                                            for test_type_name in test_types:
+                                                test_results = test_data.get(test_type_name, [])
+                                                vulnerable_results = [t for t in test_results if t.get('is_vulnerable', False)]
+                                                
+                                                if vulnerable_results:
+                                                    with st.expander(f"🔍 {test_type_name.replace('_', ' ').title()} Vulnerabilities ({len(vulnerable_results)})"):
+                                                        for test in vulnerable_results[:10]:  # Limit display
+                                                            st.write(f"**Endpoint:** {test.get('endpoint', 'N/A')}")
+                                                            st.write(f"**Method:** {test.get('method', 'N/A')}")
+                                                            st.write(f"**Parameter:** {test.get('parameter', 'N/A')}")
+                                                            st.write(f"**Payload:** `{test.get('payload', 'N/A')}`")
+                                                            st.write(f"**Risk Level:** {test.get('risk_level', 'N/A')}")
+                                                            st.write(f"**Status Code:** {test.get('status_code', 'N/A')}")
+                                                            if test.get('evidence'):
+                                                                st.json(test.get('evidence'))
+                                                            st.divider()
+                                        else:
+                                            st.success(f"✅ No {test_type} vulnerabilities found")
                                     else:
-                                        st.success(f"✅ No {test_type} vulnerabilities found")
+                                        # Original logic for XSS and SQL tests
+                                        summary = test_data.get('summary', {})
+                                        vulnerabilities = summary.get('vulnerabilities_found', 0)
+                                        
+                                        if vulnerabilities > 0:
+                                            st.error(f"🚨 **{vulnerabilities} vulnerabilities found!**")
+                                            
+                                            # Show detailed results
+                                            form_tests = test_data.get('form_tests', [])
+                                            for test in form_tests:
+                                                if test.get('is_vulnerable'):
+                                                    st.write(f"**Input:** {test.get('input_name', 'N/A')}")
+                                                    st.write(f"**Payload:** `{test.get('payload', 'N/A')}`")
+                                                    st.write(f"**Risk Level:** {test.get('risk_level', 'N/A')}")
+                                                    if test.get('response_snippet'):
+                                                        st.write(f"**Response:** {test.get('response_snippet', '')[:200]}...")
+                                                    st.divider()
+                                        else:
+                                            st.success(f"✅ No {test_type} vulnerabilities found")
                                     
                                     st.divider()
                 

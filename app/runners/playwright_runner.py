@@ -16,6 +16,7 @@ from .component_tester import run_comprehensive_component_test
 from app.services.heuristics import perform_login
 from app.services.xss_pentest import XSSPentester
 from app.services.sql_pentest import SQLPentester
+from app.services.api_pentest import APIVulnerabilityTester
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -60,7 +61,8 @@ def run_page_smoke(
     form_safe_mode: bool = True,
     auth: Optional[Dict[str, Any]] = None,
     enable_xss_test: bool = False,
-    enable_sql_test: bool = False
+    enable_sql_test: bool = False,
+    enable_api_test: bool = False
 ) -> Dict[str, Any]:
     """
     Jalankan smoke test pada satu halaman.
@@ -325,7 +327,7 @@ def run_page_smoke(
                     result['form_test_error'] = str(e)
 
             # Penetration Testing
-            if enable_xss_test or enable_sql_test:
+            if enable_xss_test or enable_sql_test or enable_api_test:
                 logger.info("🔒 Running penetration tests...")
                 
                 try:
@@ -344,6 +346,17 @@ def run_page_smoke(
                         sql_result = sql_tester.run_sql_test(page, url)
                         result['sql_test'] = sql_result
                         logger.info(f"SQL test complete: {sql_result['summary']['vulnerabilities_found']} vulnerabilities found")
+                    
+                    # API Vulnerability Testing
+                    if enable_api_test:
+                        logger.info("Testing API vulnerabilities...")
+                        api_tester = APIVulnerabilityTester()
+                        api_result = api_tester.run_comprehensive_api_test(
+                            page=page,
+                            base_url=url
+                        )
+                        result['api_test'] = api_result
+                        logger.info(f"API test complete: {api_result['summary']['vulnerable_tests']} vulnerabilities found")
                         
                 except Exception as e:
                     logger.error(f"Penetration test error: {e}")
