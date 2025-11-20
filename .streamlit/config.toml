@@ -7,12 +7,12 @@ font = "sans serif"
 
 [server]
 port = 8501
-headless = false
+headless = true
 runOnSave = true
 enableXsrfProtection = true
 enableCORS = false
+address = "0.0.0.0"
 
 [browser]
 gatherUsageStats = false
-serverAddress = "localhost"
 

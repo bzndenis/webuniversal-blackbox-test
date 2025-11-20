@@ -108,15 +108,8 @@ if sys.platform == 'win32':
 app_dir = Path(__file__).parent
 sys.path.insert(0, str(app_dir.parent))
 
-from app.runners.crawl import crawl_site, crawl_site_with_auth
-from app.runners.playwright_runner import run_page_smoke, run_yaml_scenario
-from app.services.reporter import generate_all_reports, generate_stress_test_reports
-from app.services.yaml_loader import load_yaml_spec, create_sample_yaml
-from app.services.heuristics import test_form_submission
-from app.services.stress_test import StressTester, create_stress_test_config, run_stress_test
-from app.services.load_generator import AdvancedLoadGenerator, create_load_generator_config, run_load_test, LoadGeneratorScale
-from app.services.progress_monitor import create_progress_monitor, create_streamlit_updater
 from app.models.db import init_db, create_test_run, update_test_run, create_page_test, get_recent_runs
+# Lazy imports will be used inside the specific sections to improve startup time
 
 # Page configuration
 st.set_page_config(
