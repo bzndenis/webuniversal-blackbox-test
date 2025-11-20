@@ -48,19 +48,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def ensure_playwright_browsers():
-    """Ensure Playwright browsers are installed."""
+@st.cache_resource
+def install_playwright_browsers():
+    """Ensure Playwright browsers are installed. Cached to run only once."""
     try:
-        # Check if we can launch a browser (simple check)
-        # If not, install
-        logger.info("Checking Playwright browsers...")
+        logger.info("Checking/Installing Playwright browsers...")
         subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
         logger.info("Playwright browsers installed/verified.")
+        return True
     except Exception as e:
         logger.error(f"Failed to install Playwright browsers: {e}")
-
-# Install browsers on startup (especially for Streamlit Cloud)
-ensure_playwright_browsers()
+        return False
 
 import time
 
@@ -113,6 +111,10 @@ st.set_page_config(
 
 # Initialize database
 init_db()
+
+# Install Playwright browsers (cached)
+with st.spinner("Checking system dependencies..."):
+    install_playwright_browsers()
 
 # Configuration file path
 CONFIG_FILE = "config.json"
