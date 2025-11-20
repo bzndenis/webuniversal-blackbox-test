@@ -21,7 +21,7 @@ from app.services.api_pentest import APIVulnerabilityTester
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-DEFAULT_TIMEOUT = 10000
+DEFAULT_TIMEOUT = 30000  # Increased from 10s to 30s for slow-loading pages
 
 
 def ensure_headless_mode(headless: bool) -> bool:
@@ -220,9 +220,24 @@ def run_page_smoke(
                     result["auth"] = {"success": False, "error": str(auth_e)}
 
             # Navigate and measure load time for target page
+            # Use domcontentloaded for faster initial load, more tolerant to slow pages
             logger.info(f"Testing page: {url}")
             t0 = time.time()
-            resp = page.goto(url, wait_until="load", timeout=timeout)
+            
+            # Try with domcontentloaded first (faster, more tolerant to slow resources)
+            # This waits for DOM to be ready, not all resources to load
+            try:
+                resp = page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+            except PlaywrightTimeoutError:
+                # If domcontentloaded times out, try with commit (minimal wait)
+                # This is the most tolerant option - just waits for navigation to commit
+                logger.warning(f"domcontentloaded timeout for {url}, retrying with 'commit' strategy (most tolerant)")
+                try:
+                    resp = page.goto(url, wait_until="commit", timeout=timeout)
+                except PlaywrightTimeoutError:
+                    # If still timeout, re-raise to be handled by outer exception handler
+                    raise
+            
             load_ms = int((time.time() - t0) * 1000)
             result["load_ms"] = load_ms
 
@@ -531,7 +546,12 @@ def run_yaml_scenario(
                         # Handle relative URLs
                         if not target_url.startswith('http'):
                             target_url = base_url.rstrip('/') + '/' + target_url.lstrip('/')
-                        last_response = page.goto(target_url, wait_until="load")
+                        # Try domcontentloaded first, fallback to load if timeout
+                        try:
+                            last_response = page.goto(target_url, wait_until="domcontentloaded", timeout=timeout)
+                        except PlaywrightTimeoutError:
+                            logger.warning(f"domcontentloaded timeout for {target_url}, retrying with 'load'")
+                            last_response = page.goto(target_url, wait_until="load", timeout=timeout)
                         
                     elif action == "click":
                         selector = step["selector"]

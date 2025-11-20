@@ -147,7 +147,7 @@ def save_config_to_file():
         "include_pattern": st.session_state.get("include_pattern", ""),
         "exclude_pattern": st.session_state.get("exclude_pattern", ""),
         "headless": st.session_state.get("headless", True),
-        "timeout": st.session_state.get("timeout", 10),
+        "timeout": st.session_state.get("timeout", 30),  # Increased default from 10 to 30 seconds
         "deep_component_test": st.session_state.get("deep_component_test", True),
         "test_forms": st.session_state.get("test_forms", False),
         "auth_enabled": st.session_state.get("auth_enabled", False),
@@ -236,7 +236,7 @@ def init_session_state():
         'include_pattern': "",
         'exclude_pattern': "",
         'headless': True if force_headless else True,  # Always default to True, but force if no display
-        'timeout': 10,
+        'timeout': 30,  # Increased from 10 to 30 seconds for slow-loading pages
         'deep_component_test': True,
         'test_forms': False,
         'auth_enabled': False,
