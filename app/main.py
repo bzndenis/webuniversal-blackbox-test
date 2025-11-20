@@ -52,12 +52,29 @@ logger = logging.getLogger(__name__)
 def install_playwright_browsers():
     """Ensure Playwright browsers are installed. Cached to run only once."""
     try:
-        logger.info("Checking/Installing Playwright browsers...")
-        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
-        logger.info("Playwright browsers installed/verified.")
+        # Check if browsers are already installed to save time/resources
+        # Playwright installs to ~/.cache/ms-playwright on Linux
+        if sys.platform == 'linux':
+            browser_path = Path.home() / ".cache" / "ms-playwright"
+            if browser_path.exists() and any(browser_path.iterdir()):
+                logger.info(f"Playwright browsers found at {browser_path}. Skipping install.")
+                return True
+        
+        logger.info("Installing Playwright browsers (chromium)...")
+        # Run install with specific arguments to be safer
+        subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "chromium"], 
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        logger.info("Playwright browsers installed successfully.")
         return True
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to install Playwright browsers: {e.stderr}")
+        return False
     except Exception as e:
-        logger.error(f"Failed to install Playwright browsers: {e}")
+        logger.error(f"Unexpected error installing browsers: {e}")
         return False
 
 import time
@@ -110,7 +127,11 @@ st.set_page_config(
 )
 
 # Initialize database
-init_db()
+try:
+    init_db()
+except Exception as e:
+    logger.error(f"Failed to initialize database: {e}")
+    st.error(f"Database initialization failed: {e}")
 
 # Install Playwright browsers (cached)
 with st.spinner("Checking system dependencies..."):
