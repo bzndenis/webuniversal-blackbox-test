@@ -110,6 +110,7 @@ sys.path.insert(0, str(app_dir.parent))
 
 from app.models.db import init_db, create_test_run, update_test_run, create_page_test, get_recent_runs
 from app.runners.crawl import crawl_site, crawl_site_with_auth
+from app.runners.playwright_runner import run_page_smoke
 # Lazy imports will be used inside the specific sections to improve startup time
 
 # Page configuration
