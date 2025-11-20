@@ -202,6 +202,30 @@ def init_session_state():
     # Try to load from file first
     saved_config = load_config_from_file()
     
+    # Check if display is available (for headless detection)
+    def has_display():
+        """Check if display server is available."""
+        display = os.environ.get('DISPLAY')
+        if not display:
+            return False
+        if sys.platform == 'linux':
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ['xdpyinfo', '-display', display],
+                    capture_output=True,
+                    timeout=1
+                )
+                return result.returncode == 0
+            except:
+                return False
+        return True
+    
+    # Force headless if no display
+    force_headless = not has_display()
+    if force_headless:
+        logger.info("No display server detected, forcing headless mode")
+    
     # Default values
     defaults = {
         'test_mode': "Single Page",
@@ -211,7 +235,7 @@ def init_session_state():
         'same_origin': True,
         'include_pattern': "",
         'exclude_pattern': "",
-        'headless': True,
+        'headless': True if force_headless else True,  # Always default to True, but force if no display
         'timeout': 10,
         'deep_component_test': True,
         'test_forms': False,
@@ -245,9 +269,16 @@ def init_session_state():
     for key, default_value in defaults.items():
         if key not in st.session_state:
             if saved_config and key in saved_config:
-                st.session_state[key] = saved_config[key]
+                # Force headless if no display, even if saved config says otherwise
+                if key == 'headless' and force_headless:
+                    st.session_state[key] = True
+                else:
+                    st.session_state[key] = saved_config[key]
             else:
                 st.session_state[key] = default_value
+        elif key == 'headless' and force_headless:
+            # Override user setting if no display
+            st.session_state[key] = True
 
 init_session_state()
 

@@ -24,6 +24,50 @@ logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT = 10000
 
 
+def ensure_headless_mode(headless: bool) -> bool:
+    """
+    Ensure headless mode jika tidak ada display server.
+    
+    Args:
+        headless: User's headless preference
+        
+    Returns:
+        True jika harus headless, False jika bisa headed
+    """
+    # Jika user sudah set headless=True, gunakan itu
+    if headless:
+        return True
+    
+    # Cek apakah ada DISPLAY environment variable
+    display = os.environ.get('DISPLAY')
+    if not display:
+        # Tidak ada display, paksa headless
+        logger.warning("No DISPLAY environment variable found, forcing headless mode")
+        return True
+    
+    # Cek apakah X server benar-benar tersedia
+    # Di Linux, jika tidak ada X server, DISPLAY mungkin masih set tapi tidak valid
+    if sys.platform == 'linux':
+        # Coba cek apakah xdpyinfo tersedia dan bisa dijalankan
+        try:
+            import subprocess
+            result = subprocess.run(
+                ['xdpyinfo', '-display', display],
+                capture_output=True,
+                timeout=1
+            )
+            if result.returncode != 0:
+                logger.warning("X server not available, forcing headless mode")
+                return True
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+            # xdpyinfo tidak tersedia atau error, asumsikan tidak ada X server
+            logger.warning("Cannot verify X server availability, forcing headless mode")
+            return True
+    
+    # Display tersedia, gunakan preference user
+    return headless
+
+
 def clean_for_json(data):
     """
     Clean data untuk JSON serialization dengan menghapus bytes dan objek yang tidak bisa di-serialize.
@@ -98,8 +142,14 @@ def run_page_smoke(
     }
     
     try:
+        # Ensure headless mode jika tidak ada display
+        actual_headless = ensure_headless_mode(headless)
+        
         with sync_playwright() as p:
-            browser: Browser = p.chromium.launch(headless=headless)
+            browser: Browser = p.chromium.launch(
+                headless=actual_headless,
+                args=['--no-sandbox', '--disable-dev-shm-usage'] if actual_headless else None
+            )
             context: BrowserContext = browser.new_context(
                 ignore_https_errors=True,
                 user_agent=os.getenv("USER_AGENT", "Mozilla/5.0 (compatible; BlackBoxTester/1.0)")

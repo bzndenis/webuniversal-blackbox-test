@@ -6,11 +6,53 @@ import requests
 from bs4 import BeautifulSoup
 import re
 import logging
+import sys
+import os
 from playwright.sync_api import sync_playwright, Page, Browser, BrowserContext
 from .playwright_runner import perform_login
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def ensure_headless_mode(headless: bool) -> bool:
+    """
+    Ensure headless mode jika tidak ada display server.
+    
+    Args:
+        headless: User's headless preference
+        
+    Returns:
+        True jika harus headless, False jika bisa headed
+    """
+    # Jika user sudah set headless=True, gunakan itu
+    if headless:
+        return True
+    
+    # Cek apakah ada DISPLAY environment variable
+    display = os.environ.get('DISPLAY')
+    if not display:
+        # Tidak ada display, paksa headless
+        logger.warning("No DISPLAY environment variable found, forcing headless mode")
+        return True
+    
+    # Cek apakah X server benar-benar tersedia
+    if sys.platform == 'linux':
+        try:
+            import subprocess
+            result = subprocess.run(
+                ['xdpyinfo', '-display', display],
+                capture_output=True,
+                timeout=1
+            )
+            if result.returncode != 0:
+                logger.warning("X server not available, forcing headless mode")
+                return True
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+            logger.warning("Cannot verify X server availability, forcing headless mode")
+            return True
+    
+    return headless
 
 
 def crawl_site(
@@ -172,8 +214,14 @@ def crawl_site_with_auth(
     logger.info(f"Max depth: {max_depth}, Max pages: {max_pages}")
     
     try:
+        # Ensure headless mode jika tidak ada display
+        actual_headless = ensure_headless_mode(headless)
+        
         with sync_playwright() as p:
-            browser: Browser = p.chromium.launch(headless=headless)
+            browser: Browser = p.chromium.launch(
+                headless=actual_headless,
+                args=['--no-sandbox', '--disable-dev-shm-usage'] if actual_headless else None
+            )
             context: BrowserContext = browser.new_context(
                 ignore_https_errors=True,
                 user_agent="Mozilla/5.0 (compatible; BlackBoxTester/1.0)"
