@@ -5,10 +5,13 @@ from typing import Optional, List
 from datetime import datetime
 import json
 import os
+from sqlalchemy import Table
 
 
 class TestRun(SQLModel, table=True):
     """Test run record."""
+    __table_args__ = {'extend_existing': True}
+    
     id: Optional[int] = Field(default=None, primary_key=True)
     run_id: str = Field(index=True, unique=True)
     base_url: str
@@ -24,6 +27,8 @@ class TestRun(SQLModel, table=True):
 
 class PageTest(SQLModel, table=True):
     """Individual page test result."""
+    __table_args__ = {'extend_existing': True}
+    
     id: Optional[int] = Field(default=None, primary_key=True)
     run_id: str = Field(foreign_key="testrun.run_id", index=True)
     url: str
@@ -48,17 +53,26 @@ else:
     DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./test_runs.db")
 
 try:
-    engine = create_engine(DATABASE_URL, echo=False)
+    engine = create_engine(DATABASE_URL, echo=False, connect_args={"check_same_thread": False})
 except Exception as e:
     # Fallback to in-memory if file creation fails
     print(f"Warning: Failed to create DB engine at {DATABASE_URL}, falling back to in-memory. Error: {e}")
     DATABASE_URL = "sqlite:///:memory:"
-    engine = create_engine(DATABASE_URL, echo=False)
+    engine = create_engine(DATABASE_URL, echo=False, connect_args={"check_same_thread": False})
 
 
 def init_db():
     """Initialize database tables."""
-    SQLModel.metadata.create_all(engine)
+    try:
+        SQLModel.metadata.create_all(engine, checkfirst=True)
+    except Exception as e:
+        # Jika ada error, coba dengan extend_existing
+        # Clear metadata untuk menghindari konflik
+        if "already defined" in str(e).lower() or "already exists" in str(e).lower():
+            # Tabel sudah ada, skip creation
+            pass
+        else:
+            raise
 
 
 def get_session() -> Session:
