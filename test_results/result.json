@@ -1,0 +1,55 @@
+{
+  "url": "https://example.com",
+  "status": "PASS",
+  "load_ms": 742,
+  "console_errors": [
+    {
+      "text": "Failed to load resource: the server responded with a status of 404 ()",
+      "type": "error",
+      "location": {
+        "url": "https://example.com/favicon.ico",
+        "lineNumber": 0,
+        "columnNumber": 0
+      }
+    }
+  ],
+  "console_warnings": [],
+  "network_failures": [],
+  "assertions": [
+    {
+      "assert": "title_not_empty",
+      "pass": true,
+      "actual": "Example Domain",
+      "expected": "non-empty string"
+    },
+    {
+      "assert": "has_h1",
+      "pass": true,
+      "count": 1,
+      "expected": "at least 1"
+    },
+    {
+      "assert": "has_meta_charset",
+      "pass": false,
+      "actual": "not found"
+    },
+    {
+      "assert": "has_html_lang",
+      "pass": true,
+      "actual": "found"
+    },
+    {
+      "assert": "no_broken_images",
+      "pass": true,
+      "actual": "0 broken",
+      "checked": 0
+    }
+  ],
+  "forms_found": 0,
+  "forms_tested": 0,
+  "screenshot": "test_results\\screenshot.png",
+  "timestamp": "2025-11-20T12:13:58.237991",
+  "error": null,
+  "http_status": 200,
+  "buttons_found": 0
+}

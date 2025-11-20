@@ -37,9 +37,9 @@ if sys.platform == 'win32':
 import streamlit as st
 from datetime import datetime
 from pathlib import Path
+import subprocess
 import logging
 import json
-import time
 
 # Configure logging EARLY
 logging.basicConfig(
@@ -47,6 +47,22 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+def ensure_playwright_browsers():
+    """Ensure Playwright browsers are installed."""
+    try:
+        # Check if we can launch a browser (simple check)
+        # If not, install
+        logger.info("Checking Playwright browsers...")
+        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+        logger.info("Playwright browsers installed/verified.")
+    except Exception as e:
+        logger.error(f"Failed to install Playwright browsers: {e}")
+
+# Install browsers on startup (especially for Streamlit Cloud)
+ensure_playwright_browsers()
+
+import time
 
 # Verify event loop type on Windows
 if sys.platform == 'win32':

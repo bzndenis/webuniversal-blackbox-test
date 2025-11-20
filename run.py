@@ -41,8 +41,14 @@ def main():
         print(f"Error: Could not find {app_path}")
         sys.exit(1)
     
+    import argparse
+    parser = argparse.ArgumentParser(description="Launch Streamlit application")
+    parser.add_argument("--host", default="localhost", help="Address to bind the server to")
+    parser.add_argument("--port", default="8501", help="Port to run the server on")
+    args = parser.parse_args()
+
     print("🚀 Starting Black-Box Testing Tool...")
-    print("📍 Application will open in your browser at http://localhost:8501")
+    print(f"📍 Application will open in your browser at http://{args.host}:{args.port}")
     print("💡 Press Ctrl+C to stop the server\n")
     
     subprocess.run([
@@ -51,8 +57,8 @@ def main():
         "streamlit",
         "run",
         app_path,
-        "--server.port=8501",
-        "--server.address=localhost"
+        f"--server.port={args.port}",
+        f"--server.address={args.host}"
     ])
 
 if __name__ == "__main__":
