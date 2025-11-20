@@ -41,8 +41,19 @@ class PageTest(SQLModel, table=True):
 
 
 # Database setup
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./test_runs.db")
-engine = create_engine(DATABASE_URL, echo=False)
+# Use /tmp for database on Linux/Cloud to ensure write permissions
+if os.name == 'posix':
+    DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////tmp/test_runs.db")
+else:
+    DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./test_runs.db")
+
+try:
+    engine = create_engine(DATABASE_URL, echo=False)
+except Exception as e:
+    # Fallback to in-memory if file creation fails
+    print(f"Warning: Failed to create DB engine at {DATABASE_URL}, falling back to in-memory. Error: {e}")
+    DATABASE_URL = "sqlite:///:memory:"
+    engine = create_engine(DATABASE_URL, echo=False)
 
 
 def init_db():
